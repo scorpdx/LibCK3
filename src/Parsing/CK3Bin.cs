@@ -204,9 +204,28 @@ namespace LibCK3.Parsing
                         Debug.WriteLine("{");
                         Debug.Indent();
 
-                        Debug.Assert(!prevToken.IsControl);
-                        _writer.WriteStartObject(prevToken.AsIdentifier());
+                        //determine if this is an array or an object
+                        if(!reader.TryReadLittleEndian(out short newid))
+                        {
+                            reader.Rewind(sizeof(short));
+                            return false;
+                        }
 
+                        var newtoken = new CK3Token((ushort)newid);
+                        if(newtoken.IsControl && newtoken.AsControl() != ControlTokens.Close)
+                        {
+                            //value instead of identifer => array
+                            Debug.Assert(!prevToken.IsControl);
+                            _writer.WriteStartArray(prevToken.AsIdentifier());
+                        }
+                        else
+                        {
+                            //identifier (for pair) => object
+                            Debug.Assert(!prevToken.IsControl);
+                            _writer.WriteStartObject(prevToken.AsIdentifier());
+                        }
+
+                        reader.Rewind(sizeof(short));
                         while (TryReadPair(ref reader))//, out var x, out var y))
                         {
                             //Debug.WriteLine($"-->{x}");
