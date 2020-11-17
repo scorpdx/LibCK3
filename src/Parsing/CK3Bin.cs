@@ -25,6 +25,33 @@ namespace LibCK3.Parsing
         }
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    [DebuggerDisplay("(ID:{ID}, Control: {IsControl}, Identifier: {AsIdentifier()})")]
+    internal readonly ref struct CK3Token
+    {
+        private readonly ushort ID;
+
+        public CK3Token(ushort ID)
+        {
+            this.ID = ID;
+        }
+
+        public bool IsControl => ((ControlTokens)ID) switch {
+            //
+            ControlTokens.Equals => true,
+            ControlTokens.Open => true,
+            ControlTokens.Close => true,
+            //type
+            ControlTokens.Int => true,
+            ControlTokens.LPQStr => true,
+            _ => false
+        };
+
+        public ControlTokens AsControl() => (ControlTokens)ID;
+
+        public string AsIdentifier() => CK3Tokens.Tokens[ID];
+    }
+
     public class CK3Bin
     {
         private readonly Pipe _pipe;
@@ -113,20 +140,30 @@ namespace LibCK3.Parsing
 
             bool TryReadPair(ref SequenceReader<byte> reader)
             {
-                if (!TryReadToken(ref reader, out string token))
+                if (!TryReadToken(ref reader, out var token))
                     return false;
 
-                if (!reader.TryReadLittleEndian(out short controlId))
-                    return false;
-
-                if ((ControlTokens)controlId == ControlTokens.Equals)
+                if(!token.IsControl)
                 {
-                    //hasValue = true;
+                    //is identifier, so read the '='
+                    if(!TryReadToken(ref reader, out var controlToken))
+                    {
+                        reader.Rewind(sizeof(short));
+                        return false;
+                    }
+
+                    switch(controlToken.AsControl())
+                    {
+                        case ControlTokens.Equals:
+                            break;
+                        default:
+                            throw new InvalidOperationException();
+                    }
+                    Debug.WriteLine($"tag={token.AsIdentifier()}");
                 }
                 else
                 {
-                    //hasValue = false;
-                    Debugger.Break();
+                    reader.Rewind(sizeof(short));
                 }
 
                 if (!TryReadValue(ref reader, token))//CK3Type type))
@@ -139,39 +176,36 @@ namespace LibCK3.Parsing
                 return true;
             }
 
-            bool TryReadToken(ref SequenceReader<byte> reader, out string token)
+            bool TryReadToken(ref SequenceReader<byte> reader, out CK3Token token)
             {
                 if (!reader.TryReadLittleEndian(out short id))
                 {
-                    token = null;
+                    token = default;
                     return false;
                 }
 
-                if(!CK3Tokens.Tokens.TryGetValue((ushort)id, out token))
-                {
-                    reader.Rewind(sizeof(short));
-                    return false;
-                }
-
-                Debug.WriteLine($"{token} ({id})");
+                token = new CK3Token((ushort)id);
                 return true;
             }
 
-            bool TryReadValue(ref SequenceReader<byte> reader, string token)
+            bool TryReadValue(ref SequenceReader<byte> reader, CK3Token prevToken)
             {
-                if (!reader.TryReadLittleEndian(out short controlId))
+                if (!reader.TryReadLittleEndian(out short id))
                 {
-                    //element = default;
                     return false;
                 }
 
-                var control = (ControlTokens)controlId;
-                Debug.WriteLine(control);
+                var token = new CK3Token((ushort)id);
+                Debug.Assert(token.IsControl);
 
-                switch (control)
+                switch (token.AsControl())
                 {
                     case ControlTokens.Open:
-                        _writer.WriteStartObject(token);
+                        Debug.WriteLine("{");
+                        Debug.Indent();
+
+                        Debug.Assert(!prevToken.IsControl);
+                        _writer.WriteStartObject(prevToken.AsIdentifier());
 
                         while (TryReadPair(ref reader))//, out var x, out var y))
                         {
@@ -179,13 +213,16 @@ namespace LibCK3.Parsing
                             //Debug.WriteLine($"-->{y}");
                         }
 
-                        if(!TryReadValue(ref reader, token))
+                        if(!TryReadValue(ref reader, prevToken))
                         {
                             return false;
                         }
 
                         return true;
                     case ControlTokens.Close:
+                        Debug.WriteLine("}");
+                        Debug.Unindent();
+
                         _writer.WriteEndObject();
                         return true;
                     case ControlTokens.Int:
@@ -196,7 +233,8 @@ namespace LibCK3.Parsing
                         }
 
                         Debug.WriteLine($"int={intValue}");
-                        _writer.WriteNumber(token, intValue);
+                        Debug.Assert(!prevToken.IsControl);
+                        _writer.WriteNumber(prevToken.AsIdentifier(), intValue);
 
                         return true;
                     case ControlTokens.LPQStr:
@@ -213,7 +251,8 @@ namespace LibCK3.Parsing
                         }
 
                         Debug.WriteLine($"str={Encoding.UTF8.GetString(strSlice)}");
-                        _writer.WriteString(token, strSlice);
+                        Debug.Assert(!prevToken.IsControl);
+                        _writer.WriteString(prevToken.AsIdentifier(), strSlice);
                         reader.Advance(strLen);
                         return true;
 
