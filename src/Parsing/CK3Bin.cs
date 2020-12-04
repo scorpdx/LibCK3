@@ -36,14 +36,17 @@ namespace LibCK3.Parsing
             this.ID = ID;
         }
 
-        public bool IsControl => ((ControlTokens)ID) switch {
+        public bool IsControl => ((ControlTokens)ID) switch
+        {
             //
             ControlTokens.Equals => true,
             ControlTokens.Open => true,
             ControlTokens.Close => true,
             //type
             ControlTokens.Int => true,
+            ControlTokens.Float => true,
             ControlTokens.LPQStr => true,
+            ControlTokens.UInt => true,
             _ => false
         };
 
@@ -135,6 +138,11 @@ namespace LibCK3.Parsing
 
         private void ParseSequence(ReadOnlySequence<byte> buffer, ref bool hasReadChecksum)
         {
+            void DefaultClose() => throw new InvalidOperationException("Close was called without being set from open");
+
+            Stack<Action> close = new();
+            close.Push(DefaultClose);
+
             bool TryReadChecksum(ref SequenceReader<byte> reader, out ReadOnlySpan<byte> line)
                 => reader.TryReadTo(out line, (byte)'\n');
 
@@ -143,20 +151,21 @@ namespace LibCK3.Parsing
                 if (!TryReadToken(ref reader, out var token))
                     return false;
 
-                if(!token.IsControl)
+                if (!token.IsControl)
                 {
                     //is identifier, so read the '='
-                    if(!TryReadToken(ref reader, out var controlToken))
+                    if (!TryReadToken(ref reader, out var controlToken))
                     {
                         reader.Rewind(sizeof(short));
                         return false;
                     }
 
-                    switch(controlToken.AsControl())
+                    switch (controlToken.AsControl())
                     {
                         case ControlTokens.Equals:
                             break;
                         default:
+                            _writer.Flush();
                             throw new InvalidOperationException();
                     }
                     Debug.WriteLine($"tag={token.AsIdentifier()}");
@@ -166,6 +175,10 @@ namespace LibCK3.Parsing
                     reader.Rewind(sizeof(short));
                 }
 
+                if(!token.IsControl && token.AsIdentifier() == "genes")
+                {
+                    Debug.WriteLine(":");
+                }
                 if (!TryReadValue(ref reader, token))//CK3Type type))
                     return false;
 
@@ -196,7 +209,20 @@ namespace LibCK3.Parsing
                 }
 
                 var token = new CK3Token((ushort)id);
-                Debug.Assert(token.IsControl);
+                if (!token.IsControl)
+                {
+                    var identifier = token.AsIdentifier();
+                    Debug.WriteLine($"identifier={identifier}");
+                    if (prevToken.IsControl)
+                    {
+                        _writer.WriteStringValue(identifier);
+                    }
+                    else
+                    {
+                        _writer.WriteString(prevToken.AsIdentifier(), identifier);
+                    }
+                    return true;
+                }
 
                 switch (token.AsControl())
                 {
@@ -205,34 +231,71 @@ namespace LibCK3.Parsing
                         Debug.Indent();
 
                         //determine if this is an array or an object
-                        if(!reader.TryReadLittleEndian(out short newid))
+                        //is this an empty object?
+                        try
+                        {
+                            if (!reader.TryReadLittleEndian(out short newid))
+                            {
+                                return false;
+                            }
+
+                            var newtoken = new CK3Token((ushort)newid);
+                            if (newtoken.IsControl && newtoken.AsControl() == ControlTokens.Close)
+                            {
+                                _writer.WriteStartObject(prevToken.AsIdentifier());
+                                close.Push(_writer.WriteEndObject);
+                                return true;
+                            }
+
+                            try
+                            {
+                                if (!reader.TryReadLittleEndian(out short newcontrol))
+                                {
+                                    return false;
+                                }
+
+                                var newcontroltoken = new CK3Token((ushort)newcontrol);
+                                if(newcontroltoken.IsControl && newcontroltoken.AsControl() == ControlTokens.Equals)
+                                {
+                                    _writer.WriteStartObject(prevToken.AsIdentifier());
+                                    close.Push(_writer.WriteEndObject);
+                                    return true;
+                                }
+                            }
+                            finally
+                            {
+                                reader.Rewind(sizeof(short));
+                            }
+                        }
+                        finally
                         {
                             reader.Rewind(sizeof(short));
-                            return false;
                         }
 
-                        var newtoken = new CK3Token((ushort)newid);
-                        if(newtoken.IsControl && newtoken.AsControl() != ControlTokens.Close)
+                        //is this a pair?
+                        //if (newtoken.IsControl && newtoken.AsControl() != ControlTokens.Close)
                         {
                             //value instead of identifer => array
                             Debug.Assert(!prevToken.IsControl);
                             _writer.WriteStartArray(prevToken.AsIdentifier());
+                            close.Push(_writer.WriteEndArray);
+                            return true;
                         }
-                        else
-                        {
-                            //identifier (for pair) => object
-                            Debug.Assert(!prevToken.IsControl);
-                            _writer.WriteStartObject(prevToken.AsIdentifier());
-                        }
+                        //else
+                        //{
+                        //    //identifier (for pair) => object
+                        //    Debug.Assert(!prevToken.IsControl);
+                        //    _writer.WriteStartObject(prevToken.AsIdentifier());
+                        //    close.Push(_writer.WriteEndObject);
+                        //}
 
-                        reader.Rewind(sizeof(short));
-                        while (TryReadPair(ref reader))//, out var x, out var y))
+                        //while (TryReadPair(ref reader))//, out var x, out var y))
                         {
                             //Debug.WriteLine($"-->{x}");
                             //Debug.WriteLine($"-->{y}");
                         }
 
-                        if(!TryReadValue(ref reader, prevToken))
+                        //if (!TryReadValue(ref reader, prevToken))
                         {
                             return false;
                         }
@@ -242,19 +305,56 @@ namespace LibCK3.Parsing
                         Debug.WriteLine("}");
                         Debug.Unindent();
 
-                        _writer.WriteEndObject();
+                        var closer = close.Pop();
+                        closer();
+
                         return true;
                     case ControlTokens.Int:
-                        if (!reader.TryReadLittleEndian(out int intValue))
                         {
-                            //element = default;
-                            return false;
+                            if (!reader.TryReadLittleEndian(out int intValue))
+                            {
+                                //element = default;
+                                return false;
+                            }
+
+                            Debug.WriteLine($"int={intValue}");
+                            Debug.Assert(!prevToken.IsControl);
+                            _writer.WriteNumber(prevToken.AsIdentifier(), intValue);
+
+                            return true;
+                        }
+                    case ControlTokens.UInt:
+                        {
+                            if (!reader.TryReadLittleEndian(out int intValue))
+                            {
+                                //element = default;
+                                return false;
+                            }
+
+                            var uintValue = (uint)intValue;
+                            Debug.WriteLine($"uint={uintValue}");
+                            Debug.Assert(!prevToken.IsControl);
+                            _writer.WriteNumber(prevToken.AsIdentifier(), uintValue);
+
+                            return true;
+                        }
+                    case ControlTokens.Float:
+                        Debug.Assert(reader.UnreadSpan.Length >= sizeof(float));
+
+                        var floatBytes = reader.UnreadSpan.Slice(0, sizeof(float));
+                        var floatValue = MemoryMarshal.AsRef<float>(floatBytes);
+
+                        Debug.WriteLine($"float={floatValue}");
+                        if (prevToken.IsControl)
+                        {
+                            _writer.WriteNumberValue(floatValue);
+                        }
+                        else
+                        {
+                            _writer.WriteNumber(prevToken.AsIdentifier(), floatValue);
                         }
 
-                        Debug.WriteLine($"int={intValue}");
-                        Debug.Assert(!prevToken.IsControl);
-                        _writer.WriteNumber(prevToken.AsIdentifier(), intValue);
-
+                        reader.Advance(sizeof(float));
                         return true;
                     case ControlTokens.LPQStr:
                         if (!reader.TryReadLittleEndian(out short strLen))
@@ -275,23 +375,23 @@ namespace LibCK3.Parsing
                         reader.Advance(strLen);
                         return true;
 
-                        //var pos = reader.Position;
-                        //if (!reader.IsNext((byte)'"', true))
-                        //{
-                        //    throw new InvalidOperationException();
-                        //}
+                    //var pos = reader.Position;
+                    //if (!reader.IsNext((byte)'"', true))
+                    //{
+                    //    throw new InvalidOperationException();
+                    //}
 
-                        //if (reader.TryReadTo(out ReadOnlySpan<byte> str, (byte)'"'))
-                        //{
-                        //    Debug.WriteLine($"str:{Encoding.UTF8.GetString(str)}");
-                        //}
-                        //else
-                        //{
-                        //    throw new InvalidOperationException();
-                        //}
+                    //if (reader.TryReadTo(out ReadOnlySpan<byte> str, (byte)'"'))
+                    //{
+                    //    Debug.WriteLine($"str:{Encoding.UTF8.GetString(str)}");
+                    //}
+                    //else
+                    //{
+                    //    throw new InvalidOperationException();
+                    //}
 
-                        //value = default;
-                        //return true;
+                    //value = default;
+                    //return true;
                     default:
                         throw new InvalidOperationException();
                 }
@@ -317,7 +417,7 @@ namespace LibCK3.Parsing
             }
 
             int PKZIP_MAGIC = BitConverter.ToInt32(new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 });
-            if(reader.TryReadLittleEndian(out int next) && next == PKZIP_MAGIC)
+            if (reader.TryReadLittleEndian(out int next) && next == PKZIP_MAGIC)
             {
 
             }
