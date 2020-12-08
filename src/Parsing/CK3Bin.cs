@@ -143,8 +143,37 @@ namespace LibCK3.Parsing
             Stack<Action> close = new();
             close.Push(DefaultClose);
 
+            bool valueMode = false;
+
             bool TryReadChecksum(ref SequenceReader<byte> reader, out ReadOnlySpan<byte> line)
                 => reader.TryReadTo(out line, (byte)'\n');
+
+            bool TryReadLPQStr(ref SequenceReader<byte> reader, ushort length)
+            {
+                if (!reader.TryReadLittleEndian(out ushort strLen))
+                {
+                    return false;
+                }
+
+                Span<byte> str = stackalloc byte[strLen];
+                if(!reader.TryCopyTo(str))
+                {
+                    reader.Rewind(sizeof(ushort));
+                    return false;
+                }
+
+                if(valueMode)
+                {
+                    _writer.WriteStringValue(str);
+                } else
+                {
+                    _writer.WriteString(propertyName, str);
+                }
+
+                Debug.WriteLine($"str={Encoding.UTF8.GetString(str)}");
+                reader.Advance(strLen);
+                return true;
+            }
 
             bool TryReadPair(ref SequenceReader<byte> reader)
             {
@@ -175,7 +204,7 @@ namespace LibCK3.Parsing
                     reader.Rewind(sizeof(short));
                 }
 
-                if(!token.IsControl && token.AsIdentifier() == "genes")
+                if (!token.IsControl && token.AsIdentifier() == "genes")
                 {
                     Debug.WriteLine(":");
                 }
@@ -191,14 +220,95 @@ namespace LibCK3.Parsing
 
             bool TryReadToken(ref SequenceReader<byte> reader, out CK3Token token)
             {
-                if (!reader.TryReadLittleEndian(out short id))
+                if (!reader.TryReadLittleEndian(out ushort id))
                 {
                     token = default;
                     return false;
                 }
 
-                token = new CK3Token((ushort)id);
+                token = new CK3Token(id);
                 return true;
+            }
+
+            bool TryReadIdentifier(ref SequenceReader<byte> reader, out ReadOnlySpan<byte> identifier)
+            {
+                if (!TryReadToken(ref reader, out var firstToken))
+                {
+                    identifier = default;
+                    return false;
+                }
+
+                if (!firstToken.IsControl)
+                {
+                    identifier = Encoding.UTF8.GetBytes(firstToken.AsIdentifier());
+                    return true;
+                }
+                else if (firstToken.AsControl() == ControlTokens.LPQStr && reader.TryReadLPQStr(out identifier))
+                {
+                    return true;
+                }
+                else
+                {
+                    reader.Rewind(sizeof(ushort));
+
+                    identifier = default;
+                    return false;
+                }
+            }
+
+            (bool isArray, bool isObject)? PeekType(ref SequenceReader<byte> reader, out CK3Token token)
+            {
+                if (!TryReadToken(ref reader, out token))
+                {
+                    return null;
+                }
+
+                try
+                {
+                    if (!TryReadToken(ref reader, out var newtoken))
+                    {
+                        return null;
+                    }
+
+                    if (newtoken.IsControl && newtoken.AsControl() == ControlTokens.Close)
+                    {
+                        return (isArray: false, isObject: true);
+                    }
+                    reader.Rewind(sizeof(ushort));
+
+                    if (TryReadIdentifier(ref reader, out _)
+                        && TryReadToken(ref reader, out var newControlToken)
+                        && newControlToken.IsControl && newControlToken.AsControl() == ControlTokens.Equals)
+                    {
+                        return (isArray: false, isObject: true);
+                    }
+                    else
+                    {
+                        return (isArray: true, isObject: false);
+                    }
+
+                    try
+                    {
+                        if (!TryReadToken(ref reader, out var newcontroltoken))
+                        {
+                            return null;
+                        }
+
+                        if (newcontroltoken.IsControl && newcontroltoken.AsControl() == ControlTokens.Equals)
+                        {
+                            return (isArray: false, isObject: true);
+                        }
+                    }
+                    finally
+                    {
+                        reader.Rewind(sizeof(ushort));
+                    }
+                }
+                finally
+                {
+                    reader.Rewind(sizeof(ushort));
+                }
+
             }
 
             bool TryReadValue(ref SequenceReader<byte> reader, CK3Token prevToken)
@@ -255,7 +365,7 @@ namespace LibCK3.Parsing
                                 }
 
                                 var newcontroltoken = new CK3Token((ushort)newcontrol);
-                                if(newcontroltoken.IsControl && newcontroltoken.AsControl() == ControlTokens.Equals)
+                                if (newcontroltoken.IsControl && newcontroltoken.AsControl() == ControlTokens.Equals)
                                 {
                                     _writer.WriteStartObject(prevToken.AsIdentifier());
                                     close.Push(_writer.WriteEndObject);
@@ -357,22 +467,14 @@ namespace LibCK3.Parsing
                         reader.Advance(sizeof(float));
                         return true;
                     case ControlTokens.LPQStr:
-                        if (!reader.TryReadLittleEndian(out short strLen))
+                        if (!reader.TryReadLPQStr(out var strSlice))
                         {
-                            return false;
-                        }
-
-                        var strSlice = reader.UnreadSpan.Slice(0, strLen);
-                        if (strSlice.Length != strLen)
-                        {
-                            reader.Rewind(sizeof(short));
                             return false;
                         }
 
                         Debug.WriteLine($"str={Encoding.UTF8.GetString(strSlice)}");
                         Debug.Assert(!prevToken.IsControl);
                         _writer.WriteString(prevToken.AsIdentifier(), strSlice);
-                        reader.Advance(strLen);
                         return true;
 
                     //var pos = reader.Position;
