@@ -82,7 +82,12 @@ namespace LibCK3.Parsing
         {
             _writer.WriteStartObject();
 
-            bool hasReadChecksum = false;
+            var state = ParseState.Checksum;
+            Stack<Action> close = new();
+
+            static void DefaultClose() => throw new InvalidOperationException("Close was called without being set from open");
+            close.Push(DefaultClose);
+
             try
             {
                 while (!cancelToken.IsCancellationRequested)
@@ -93,7 +98,7 @@ namespace LibCK3.Parsing
                         return;
                     }
 
-                    ParseSequence(result.Buffer, ref hasReadChecksum, out var consumed, out var examined);
+                    ParseSequence(result.Buffer, ref state, close, out var consumed, out var examined);
                     pipeReader.AdvanceTo(consumed, examined);
                 }
                 cancelToken.ThrowIfCancellationRequested();
@@ -106,12 +111,17 @@ namespace LibCK3.Parsing
             _writer.WriteEndObject();
         }
 
-        private void ParseSequence(ReadOnlySequence<byte> buffer, ref bool hasReadChecksum, out SequencePosition consumed, out SequencePosition examined)
+        private enum ParseState
         {
-            void DefaultClose() => throw new InvalidOperationException("Close was called without being set from open");
+            Checksum,
+            Token,
+            Identifier,
+            Value
+        }
 
-            Stack<Action> close = new();
-            close.Push(DefaultClose);
+        private void ParseSequence(ReadOnlySequence<byte> buffer, ref ParseState state, Stack<Action> close, out SequencePosition consumed, out SequencePosition examined)
+        {
+            #region Reader methods
 
             bool TryReadChecksum(ref SequenceReader<byte> reader, out ReadOnlySpan<byte> line)
                 => reader.TryReadTo(out line, (byte)'\n');
@@ -327,7 +337,7 @@ namespace LibCK3.Parsing
                         else if (isObjToken.AsControl() == ControlTokens.LPQStr)
                         {
                             var copy = reader;
-                            if(!copy.TryReadLittleEndian(out ushort strLen))
+                            if (!copy.TryReadLittleEndian(out ushort strLen))
                             {
                                 return false;
                             }
@@ -415,6 +425,7 @@ namespace LibCK3.Parsing
                         throw new InvalidOperationException();
                 }
             }
+            #endregion
 
             var reader = new SequenceReader<byte>(buffer);
             //ReadOnlySpan<byte> justRead;
@@ -427,35 +438,66 @@ namespace LibCK3.Parsing
             //}
             //Debug.WriteLine("YES");
 
-            if (!hasReadChecksum)
+            switch (state)
             {
-                if (!TryReadChecksum(ref reader, out var checksum))
-                {
-                    consumed = buffer.Start;
-                    examined = buffer.End;
-                    return;
-                }
+                case ParseState.Checksum:
+                    if (!TryReadChecksum(ref reader, out var checksum))
+                    {
+                        consumed = buffer.Start;
+                        examined = buffer.End;
+                        return;
+                    }
 
-                _writer.WriteString("checksum", checksum);
-                hasReadChecksum = true;
+                    _writer.WriteString("checksum", checksum);
+
+                    state = ParseState.Token;
+                    break;
+                case ParseState.Token:
+                    if (!TryReadToken(ref reader, out var token))
+                    {
+                        consumed = buffer.Start;
+                        examined = buffer.End;
+                        return;
+                    }
+
+                    if (!token.IsControl)
+                    {
+                        Debug.WriteLine($"tag={token.AsIdentifier()}");
+                        _writer.WritePropertyName(token.AsIdentifier());
+
+                        state = ParseState.Token;
+                        break;
+                    }
+
+                    switch(token.AsControl())
+                    {
+                        case ControlTokens.Equals:
+                            state = ParseState.Value;
+                            break;
+                        case ControlTokens.Open:
+                        case ControlTokens.Close:
+                        default:
+                            state = ParseState.Value;
+                            consumed = buffer.Start;
+                            examined = consumed;
+                            return;
+                    }
+                    break;
+                case ParseState.Value:
+                    if (!TryReadValue(ref reader))
+                    {
+                        consumed = buffer.Start;
+                        examined = buffer.End;
+                        return;
+                    }
+
+                    state = ParseState.Token;
+                    break;
             }
 
-            while (TryReadPair(ref reader))//, out var token, out var value))
-            {
-                Debug.WriteLine($"consumed: {reader.Consumed} remaining: {reader.Remaining} end: {reader.End}");
-            }
-
+            //Debug.WriteLine($"state: {state} consumed: {reader.Consumed} remaining: {reader.Remaining} end: {reader.End}");
             consumed = reader.Position;
             examined = consumed;
-
-            //while(reader.TryAdvanceTo(PKZIP_MAGIC[0], false) && reader.TryReadLittleEndian(out int magic))
-            //{
-            //    Debug.WriteLine(reader.Position);
-            //    if (magic == PKZIP_MAGIC_INT_LE)
-            //    {
-            //        Console.WriteLine("ok");
-            //    }
-            //}
         }
     }
 }
