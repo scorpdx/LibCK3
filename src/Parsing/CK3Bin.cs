@@ -116,6 +116,7 @@ namespace LibCK3.Parsing
             Checksum,
             Token,
             Identifier,
+            IdentifierKey,
             Value
         }
 
@@ -143,13 +144,14 @@ namespace LibCK3.Parsing
                 if (!asPropertyName)
                 {
                     _writer.WriteStringValue(str);
+                    Debug.WriteLine($"str={Encoding.UTF8.GetString(str)}");
                 }
                 else
                 {
                     _writer.WritePropertyName(str);
+                    Debug.WriteLine($"idstr={Encoding.UTF8.GetString(str)}");
                 }
 
-                Debug.WriteLine($"str={Encoding.UTF8.GetString(str)}");
                 reader.Advance(strLen);
                 return true;
             }
@@ -189,7 +191,8 @@ namespace LibCK3.Parsing
                     Debug.WriteLine(":");
                 }
 
-                if (!TryReadValue(ref reader))//, token))//CK3Type type))
+                ParseState x = default;
+                if (!TryReadValue(ref reader, ref x))//, token))//CK3Type type))
                     return false;
 
                 //switch(type)
@@ -292,7 +295,7 @@ namespace LibCK3.Parsing
 
             }
 
-            bool TryReadValue(ref SequenceReader<byte> reader)
+            bool TryReadValue(ref SequenceReader<byte> reader, ref ParseState state)
             {
                 if (!reader.TryReadLittleEndian(out ushort id))
                 {
@@ -351,7 +354,12 @@ namespace LibCK3.Parsing
                             if (detectToken.IsControl && detectToken.AsControl() == ControlTokens.Equals)
                             {
                                 WriteObject();
+                            } else
+                            {
+                                WriteArray();
                             }
+
+                            state = ParseState.IdentifierKey;
                         }
                         else
                         {
@@ -419,7 +427,7 @@ namespace LibCK3.Parsing
                         reader.Advance(sizeof(float));
                         return true;
                     case ControlTokens.LPQStr:
-                        return TryReadLPQStr(ref reader);
+                        return TryReadLPQStr(ref reader, state == ParseState.IdentifierKey);
 
                     default:
                         throw new InvalidOperationException();
@@ -459,17 +467,15 @@ namespace LibCK3.Parsing
                         examined = buffer.End;
                         return;
                     }
-
-                    if (!token.IsControl)
+                    else if (!token.IsControl)
                     {
-                        Debug.WriteLine($"tag={token.AsIdentifier()}");
-                        _writer.WritePropertyName(token.AsIdentifier());
-
-                        state = ParseState.Token;
-                        break;
+                        state = ParseState.Identifier;
+                        consumed = buffer.Start;
+                        examined = consumed;
+                        return;
                     }
 
-                    switch(token.AsControl())
+                    switch (token.AsControl())
                     {
                         case ControlTokens.Equals:
                             state = ParseState.Value;
@@ -483,15 +489,31 @@ namespace LibCK3.Parsing
                             return;
                     }
                     break;
-                case ParseState.Value:
-                    if (!TryReadValue(ref reader))
+                case ParseState.Identifier:
+                    if (!TryReadToken(ref reader, out var idToken))
                     {
                         consumed = buffer.Start;
                         examined = buffer.End;
                         return;
                     }
 
+                    Debug.WriteLine($"tag={idToken.AsIdentifier()}");
+                    _writer.WritePropertyName(idToken.AsIdentifier());
+
                     state = ParseState.Token;
+                    break;
+                case ParseState.IdentifierKey:
+                case ParseState.Value:
+                    var origState = state;
+                    if (!TryReadValue(ref reader, ref state))
+                    {
+                        consumed = buffer.Start;
+                        examined = buffer.End;
+                        return;
+                    }
+
+                    //don't overwrite if TryReadValue changed state
+                    state = state != origState ? state : ParseState.Token;
                     break;
             }
 
