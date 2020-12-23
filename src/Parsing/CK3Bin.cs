@@ -169,6 +169,7 @@ namespace LibCK3.Parsing
                             throw new InvalidOperationException();
                     }
                     Debug.WriteLine($"tag={token.AsIdentifier()}");
+                    _writer.WritePropertyName(token.AsIdentifier());
                 }
                 else
                 {
@@ -201,7 +202,7 @@ namespace LibCK3.Parsing
                 return true;
             }
 
-            bool TryReadIdentifier(ref SequenceReader<byte> reader, out ReadOnlySpan<byte> identifier)
+            bool TryReadIdentifier(ref SequenceReader<byte> reader, out string identifier)
             {
                 if (!TryReadToken(ref reader, out var firstToken))
                 {
@@ -211,7 +212,7 @@ namespace LibCK3.Parsing
 
                 if (!firstToken.IsControl)
                 {
-                    identifier = Encoding.UTF8.GetBytes(firstToken.AsIdentifier());
+                    identifier = firstToken.AsIdentifier();
                     return true;
                 }
                 //else if (firstToken.AsControl() == ControlTokens.LPQStr && reader.TryReadLPQStr(out identifier))
@@ -311,77 +312,46 @@ namespace LibCK3.Parsing
                         Debug.WriteLine("{");
                         Debug.Indent();
 
-                        //determine if this is an array or an object
-                        //is this an empty object?
+                        SequenceReader<byte> copy = reader;
                         try
                         {
-                            if (!reader.TryReadLittleEndian(out short newid))
+                            ReadOnlySpan<byte> delim = new[] { (byte)ControlTokens.Open, (byte)ControlTokens.Close, (byte)ControlTokens.Equals };
+                            int depth = 0;
+                        SpitTake:
+                            if (!reader.TryAdvanceToAny(delim, false))
                             {
                                 return false;
                             }
-
-                            var newtoken = new CK3Token((ushort)newid);
-                            if (newtoken.IsControl && newtoken.AsControl() == ControlTokens.Close)
+                            else if (reader.TryPeek(out byte foundDelim))
                             {
-                                _writer.WriteStartObject(prevToken.AsIdentifier());
-                                close.Push(_writer.WriteEndObject);
-                                return true;
-                            }
-
-                            try
-                            {
-                                if (!reader.TryReadLittleEndian(out short newcontrol))
+                                var delimAsControl = (ControlTokens)foundDelim;
+                                switch (delimAsControl)
                                 {
-                                    return false;
-                                }
-
-                                var newcontroltoken = new CK3Token((ushort)newcontrol);
-                                if (newcontroltoken.IsControl && newcontroltoken.AsControl() == ControlTokens.Equals)
-                                {
-                                    _writer.WriteStartObject(prevToken.AsIdentifier());
-                                    close.Push(_writer.WriteEndObject);
-                                    return true;
+                                    case ControlTokens.Open when reader.TryPeek(out byte openPeek) && ((ControlTokens)openPeek) == ControlTokens.Close:
+                                    case ControlTokens.Equals when depth == 0:
+                                        Debug.WriteLine($"root container is an object");
+                                        _writer.WriteStartObject();
+                                        close.Push(_writer.WriteEndObject);
+                                        return true;
+                                    case ControlTokens.Open:
+                                        depth++;
+                                        goto SpitTake;
+                                    case ControlTokens.Close when depth > 1:
+                                        depth--;
+                                        break;
+                                    case ControlTokens.Close:
+                                        Debug.WriteLine($"root container is an array");
+                                        _writer.WriteStartArray();
+                                        close.Push(_writer.WriteEndArray);
+                                        return true;
                                 }
                             }
-                            finally
-                            {
-                                reader.Rewind(sizeof(short));
-                            }
+                            return false;
                         }
                         finally
                         {
-                            reader.Rewind(sizeof(short));
+                            reader = copy;
                         }
-
-                        //is this a pair?
-                        //if (newtoken.IsControl && newtoken.AsControl() != ControlTokens.Close)
-                        {
-                            //value instead of identifer => array
-                            Debug.Assert(!prevToken.IsControl);
-                            _writer.WriteStartArray(prevToken.AsIdentifier());
-                            close.Push(_writer.WriteEndArray);
-                            return true;
-                        }
-                        //else
-                        //{
-                        //    //identifier (for pair) => object
-                        //    Debug.Assert(!prevToken.IsControl);
-                        //    _writer.WriteStartObject(prevToken.AsIdentifier());
-                        //    close.Push(_writer.WriteEndObject);
-                        //}
-
-                        //while (TryReadPair(ref reader))//, out var x, out var y))
-                        {
-                            //Debug.WriteLine($"-->{x}");
-                            //Debug.WriteLine($"-->{y}");
-                        }
-
-                        //if (!TryReadValue(ref reader, prevToken))
-                        {
-                            return false;
-                        }
-
-                        return true;
                     case ControlTokens.Close:
                         Debug.WriteLine("}");
                         Debug.Unindent();
