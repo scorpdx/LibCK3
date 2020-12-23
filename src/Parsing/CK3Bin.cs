@@ -57,6 +57,8 @@ namespace LibCK3.Parsing
 
     public class CK3Bin
     {
+        private static readonly byte[] PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
+
         private readonly Pipe _pipe;
         private readonly Stream _stream;
 
@@ -85,10 +87,11 @@ namespace LibCK3.Parsing
             _writer.WriteStartObject();
 
             bool hasReadChecksum = false;
-            var result = await pipeReader.ReadAsync(cancelToken);
             while (!cancelToken.IsCancellationRequested)
             {
+                var result = await pipeReader.ReadAsync(cancelToken);
                 ParseSequence(result.Buffer, ref hasReadChecksum);
+                pipeReader.AdvanceTo(result.Buffer.End);
                 ///
                 // 0 = checksum
                 // 1 = token
@@ -155,16 +158,17 @@ namespace LibCK3.Parsing
                 }
 
                 Span<byte> str = stackalloc byte[strLen];
-                if(!reader.TryCopyTo(str))
+                if (!reader.TryCopyTo(str))
                 {
                     reader.Rewind(sizeof(ushort));
                     return false;
                 }
 
-                if(valueMode)
+                if (valueMode)
                 {
                     _writer.WriteStringValue(str);
-                } else
+                }
+                else
                 {
                     _writer.WriteString(propertyName, str);
                 }
@@ -466,15 +470,15 @@ namespace LibCK3.Parsing
                         reader.Advance(sizeof(float));
                         return true;
                     case ControlTokens.LPQStr:
-                        //if (!reader.TryReadLPQStr(out var strSlice))
-                        //{
-                        //    return false;
-                        //}
+                    //if (!reader.TryReadLPQStr(out var strSlice))
+                    //{
+                    //    return false;
+                    //}
 
-                        //Debug.WriteLine($"str={Encoding.UTF8.GetString(strSlice)}");
-                        //Debug.Assert(!prevToken.IsControl);
-                        //_writer.WriteString(prevToken.AsIdentifier(), strSlice);
-                        //return true;
+                    //Debug.WriteLine($"str={Encoding.UTF8.GetString(strSlice)}");
+                    //Debug.Assert(!prevToken.IsControl);
+                    //_writer.WriteString(prevToken.AsIdentifier(), strSlice);
+                    //return true;
 
                     default:
                         throw new InvalidOperationException();
@@ -482,6 +486,15 @@ namespace LibCK3.Parsing
             }
 
             var reader = new SequenceReader<byte>(buffer);
+            ReadOnlySpan<byte> justRead;
+            while (!reader.TryReadTo(out justRead, PKZIP_MAGIC))
+            {
+                Debug.WriteLine("NO");
+                reader.Advance(reader.UnreadSpan.Length);
+
+                if (reader.End) break;
+            }
+            Debug.WriteLine("YES");
 
             //if (!hasReadChecksum)
             //{
@@ -500,18 +513,14 @@ namespace LibCK3.Parsing
             //    //Debug.WriteLine(value);
             //}
 
-            ReadOnlySpan<byte> PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
-            int PKZIP_MAGIC_INT_LE = BitConverter.ToInt32(PKZIP_MAGIC);
-            while(reader.TryAdvanceTo(PKZIP_MAGIC[0], false) && reader.TryReadLittleEndian(out int magic))
-            {
-                Console.WriteLine(reader.Position);
-                if (magic == PKZIP_MAGIC_INT_LE)
-                {
-                    Console.WriteLine("ok");
-                }
-            }
-            Console.WriteLine(reader.Position);
-            Console.WriteLine("nok");
+            //while(reader.TryAdvanceTo(PKZIP_MAGIC[0], false) && reader.TryReadLittleEndian(out int magic))
+            //{
+            //    Debug.WriteLine(reader.Position);
+            //    if (magic == PKZIP_MAGIC_INT_LE)
+            //    {
+            //        Console.WriteLine("ok");
+            //    }
+            //}
         }
     }
 }

@@ -20,5 +20,26 @@ namespace LibCK3.Parsing
             value = (ushort)shortValue;
             return result;
         }
+
+        //public static bool TryAdvanceToSequence(ref this SequenceReader<byte> reader, ReadOnlySpan<byte> sequence)
+        //{
+        //    reader.TryReadTo(,)
+
+        //    var span = reader.UnreadSpan;
+        //    var index = span.IndexOf(sequence);
+        //    if (index != -1)
+        //    {
+
+        //    }
+        //    else
+        //    {
+        //        SequenceReader<byte> copy = reader;
+        //        while (!reader.End)
+        //        {
+        //            reader.Advance(span.Length);
+        //            if()
+        //        }
+        //    }
+        //}
     }
 }
