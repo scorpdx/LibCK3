@@ -85,10 +85,9 @@ namespace LibCK3.Parsing
             _writer.WriteStartObject();
 
             bool hasReadChecksum = false;
-
+            var result = await pipeReader.ReadAsync(cancelToken);
             while (!cancelToken.IsCancellationRequested)
             {
-                var result = await pipeReader.ReadAsync(cancelToken);
                 ParseSequence(result.Buffer, ref hasReadChecksum);
                 ///
                 // 0 = checksum
@@ -148,7 +147,7 @@ namespace LibCK3.Parsing
             bool TryReadChecksum(ref SequenceReader<byte> reader, out ReadOnlySpan<byte> line)
                 => reader.TryReadTo(out line, (byte)'\n');
 
-            bool TryReadLPQStr(ref SequenceReader<byte> reader, ushort length)
+            bool TryReadLPQStr(ref SequenceReader<byte> reader, ushort length, ReadOnlySpan<byte> propertyName = default)
             {
                 if (!reader.TryReadLittleEndian(out ushort strLen))
                 {
@@ -243,10 +242,10 @@ namespace LibCK3.Parsing
                     identifier = Encoding.UTF8.GetBytes(firstToken.AsIdentifier());
                     return true;
                 }
-                else if (firstToken.AsControl() == ControlTokens.LPQStr && reader.TryReadLPQStr(out identifier))
-                {
-                    return true;
-                }
+                //else if (firstToken.AsControl() == ControlTokens.LPQStr && reader.TryReadLPQStr(out identifier))
+                //{
+                //    return true;
+                //}
                 else
                 {
                     reader.Rewind(sizeof(ushort));
@@ -467,33 +466,16 @@ namespace LibCK3.Parsing
                         reader.Advance(sizeof(float));
                         return true;
                     case ControlTokens.LPQStr:
-                        if (!reader.TryReadLPQStr(out var strSlice))
-                        {
-                            return false;
-                        }
+                        //if (!reader.TryReadLPQStr(out var strSlice))
+                        //{
+                        //    return false;
+                        //}
 
-                        Debug.WriteLine($"str={Encoding.UTF8.GetString(strSlice)}");
-                        Debug.Assert(!prevToken.IsControl);
-                        _writer.WriteString(prevToken.AsIdentifier(), strSlice);
-                        return true;
+                        //Debug.WriteLine($"str={Encoding.UTF8.GetString(strSlice)}");
+                        //Debug.Assert(!prevToken.IsControl);
+                        //_writer.WriteString(prevToken.AsIdentifier(), strSlice);
+                        //return true;
 
-                    //var pos = reader.Position;
-                    //if (!reader.IsNext((byte)'"', true))
-                    //{
-                    //    throw new InvalidOperationException();
-                    //}
-
-                    //if (reader.TryReadTo(out ReadOnlySpan<byte> str, (byte)'"'))
-                    //{
-                    //    Debug.WriteLine($"str:{Encoding.UTF8.GetString(str)}");
-                    //}
-                    //else
-                    //{
-                    //    throw new InvalidOperationException();
-                    //}
-
-                    //value = default;
-                    //return true;
                     default:
                         throw new InvalidOperationException();
                 }
@@ -501,28 +483,35 @@ namespace LibCK3.Parsing
 
             var reader = new SequenceReader<byte>(buffer);
 
-            if (!hasReadChecksum)
+            //if (!hasReadChecksum)
+            //{
+            //    if (!TryReadChecksum(ref reader, out var checksum))
+            //        return;
+
+            //    _writer.WriteString("checksum", checksum);
+
+            //    hasReadChecksum = true;
+            //}
+
+            //while (TryReadPair(ref reader))//, out var token, out var value))
+            //{
+            //    Debug.WriteLine(reader.Position);
+            //    //Debug.WriteLine(token);
+            //    //Debug.WriteLine(value);
+            //}
+
+            ReadOnlySpan<byte> PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
+            int PKZIP_MAGIC_INT_LE = BitConverter.ToInt32(PKZIP_MAGIC);
+            while(reader.TryAdvanceTo(PKZIP_MAGIC[0], false) && reader.TryReadLittleEndian(out int magic))
             {
-                if (!TryReadChecksum(ref reader, out var checksum))
-                    return;
-
-                _writer.WriteString("checksum", checksum);
-
-                hasReadChecksum = true;
+                Console.WriteLine(reader.Position);
+                if (magic == PKZIP_MAGIC_INT_LE)
+                {
+                    Console.WriteLine("ok");
+                }
             }
-
-            while (TryReadPair(ref reader))//, out var token, out var value))
-            {
-                Debug.WriteLine(reader.Position);
-                //Debug.WriteLine(token);
-                //Debug.WriteLine(value);
-            }
-
-            int PKZIP_MAGIC = BitConverter.ToInt32(new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 });
-            if (reader.TryReadLittleEndian(out int next) && next == PKZIP_MAGIC)
-            {
-
-            }
+            Console.WriteLine(reader.Position);
+            Console.WriteLine("nok");
         }
     }
 }
