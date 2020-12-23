@@ -59,86 +59,52 @@ namespace LibCK3.Parsing
     {
         private static readonly byte[] PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
 
-        private readonly Pipe _pipe;
+        private readonly PipeReader _readPipe;
         private readonly Stream _stream;
 
         private readonly Utf8JsonWriter _writer;
 
         public CK3Bin(Stream stream, Utf8JsonWriter writer)
         {
-            _pipe = new Pipe();
-            _stream = stream;
-            _writer = writer;
+            _readPipe = PipeReader.Create(stream);
         }
-        public CK3Bin(string path, Utf8JsonWriter writer) : this(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite), writer)
+        public CK3Bin(string path, Utf8JsonWriter writer)
+            : this(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite), writer)
         {
         }
 
-        public async Task ParseAsync(CancellationToken token = default)
-        {
-            var streamReadTask = _stream.CopyToAsync(_pipe.Writer, token);
-            var reader = _pipe.Reader;
-            await ReadPipeAsync(reader, token);
-            await streamReadTask;
-        }
+        public Task ParseAsync(CancellationToken token = default)
+            => ReadPipeAsync(_readPipe, token);
 
         private async Task ReadPipeAsync(PipeReader pipeReader, CancellationToken cancelToken = default)
         {
             _writer.WriteStartObject();
 
             bool hasReadChecksum = false;
-            while (!cancelToken.IsCancellationRequested)
+            try
             {
-                var result = await pipeReader.ReadAsync(cancelToken);
-                ParseSequence(result.Buffer, ref hasReadChecksum);
-                pipeReader.AdvanceTo(result.Buffer.End);
-                ///
-                // 0 = checksum
-                // 1 = token
-                // 2 = token close
-                //var state = 0;
+                while (!cancelToken.IsCancellationRequested)
+                {
+                    var result = await pipeReader.ReadAsync(cancelToken);
+                    if (result.IsCanceled)
+                    {
+                        return;
+                    }
 
-                //ReadOnlySequence<byte> line;
-                //switch (state)
-                //{
-                //    case 0:
-                //        {
-                //            var readChecksum = TryReadChecksum(ref buffer, out line);
-                //            if (readChecksum)
-                //            {
-                //                state = 1;
-                //            }
-                //            break;
-                //        }
-                //    case 1:
-                //        {
-                //            if (TryReadToken(ref buffer, out var tokenSet))
-                //            {
-                //                state = 2;
-                //            }
-                //            else
-                //            {
-
-                //            }
-
-                //            break;
-                //        }
-                //    case 2:
-                //        {
-                //            if (TryReadValue(ref buffer, out var control))
-                //            {
-                //                state = 1;
-                //            }
-                //            break;
-                //        }
-                //}
+                    ParseSequence(result.Buffer, ref hasReadChecksum, out var consumed, out var examined);
+                    pipeReader.AdvanceTo(consumed, examined);
+                }
+                cancelToken.ThrowIfCancellationRequested();
             }
-            cancelToken.ThrowIfCancellationRequested();
+            finally
+            {
+                await _readPipe.CompleteAsync();
+            }
 
             _writer.WriteEndObject();
         }
 
-        private void ParseSequence(ReadOnlySequence<byte> buffer, ref bool hasReadChecksum)
+        private void ParseSequence(ReadOnlySequence<byte> buffer, ref bool hasReadChecksum, out SequencePosition consumed, out SequencePosition examined)
         {
             void DefaultClose() => throw new InvalidOperationException("Close was called without being set from open");
 
@@ -496,15 +462,18 @@ namespace LibCK3.Parsing
             }
             Debug.WriteLine("YES");
 
-            //if (!hasReadChecksum)
-            //{
-            //    if (!TryReadChecksum(ref reader, out var checksum))
-            //        return;
+            if (!hasReadChecksum)
+            {
+                if (!TryReadChecksum(ref reader, out var checksum))
+                {
+                    consumed = buffer.Start;
+                    examined = buffer.End;
+                    return;
+                }
 
-            //    _writer.WriteString("checksum", checksum);
-
-            //    hasReadChecksum = true;
-            //}
+                _writer.WriteString("checksum", checksum);
+                hasReadChecksum = true;
+            }
 
             //while (TryReadPair(ref reader))//, out var token, out var value))
             //{
