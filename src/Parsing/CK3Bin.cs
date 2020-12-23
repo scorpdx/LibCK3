@@ -36,7 +36,7 @@ namespace LibCK3.Parsing
             this.ID = ID;
         }
 
-        public bool IsControl => ((ControlTokens)ID) switch
+        public bool IsControl => AsControl() switch
         {
             //
             ControlTokens.Equals => true,
@@ -191,8 +191,7 @@ namespace LibCK3.Parsing
                     Debug.WriteLine(":");
                 }
 
-                ParseState x = default;
-                if (!TryReadValue(ref reader, ref x))//, token))//CK3Type type))
+                if (!TryReadValue(ref reader, default))//, token))//CK3Type type))
                     return false;
 
                 //switch(type)
@@ -295,7 +294,7 @@ namespace LibCK3.Parsing
 
             }
 
-            bool TryReadValue(ref SequenceReader<byte> reader, ref ParseState state)
+            bool TryReadValue(ref SequenceReader<byte> reader, ParseState state)
             {
                 if (!reader.TryReadLittleEndian(out ushort id))
                 {
@@ -354,12 +353,11 @@ namespace LibCK3.Parsing
                             if (detectToken.IsControl && detectToken.AsControl() == ControlTokens.Equals)
                             {
                                 WriteObject();
-                            } else
+                            }
+                            else
                             {
                                 WriteArray();
                             }
-
-                            state = ParseState.IdentifierKey;
                         }
                         else
                         {
@@ -480,10 +478,13 @@ namespace LibCK3.Parsing
                         case ControlTokens.Equals:
                             state = ParseState.Value;
                             break;
+                        case ControlTokens.LPQStr:
+                            state = ParseState.IdentifierKey;
+                            goto default;
                         case ControlTokens.Open:
                         case ControlTokens.Close:
                         default:
-                            state = ParseState.Value;
+                            state = state != ParseState.Token ? state : ParseState.Value;
                             consumed = buffer.Start;
                             examined = consumed;
                             return;
@@ -504,8 +505,7 @@ namespace LibCK3.Parsing
                     break;
                 case ParseState.IdentifierKey:
                 case ParseState.Value:
-                    var origState = state;
-                    if (!TryReadValue(ref reader, ref state))
+                    if (!TryReadValue(ref reader, state))
                     {
                         consumed = buffer.Start;
                         examined = buffer.End;
@@ -513,7 +513,7 @@ namespace LibCK3.Parsing
                     }
 
                     //don't overwrite if TryReadValue changed state
-                    state = state != origState ? state : ParseState.Token;
+                    state = ParseState.Token;
                     break;
             }
 
