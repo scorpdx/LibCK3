@@ -20,5 +20,17 @@ namespace LibCK3.Parsing
             value = (ushort)shortValue;
             return result;
         }
+
+        public static bool TryReadToken(ref this SequenceReader<byte> reader, out CK3Token token)
+        {
+            if (!reader.TryReadLittleEndian(out ushort id))
+            {
+                token = default;
+                return false;
+            }
+
+            token = new CK3Token(id);
+            return true;
+        }
     }
 }

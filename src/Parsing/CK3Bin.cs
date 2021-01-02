@@ -25,36 +25,6 @@ namespace LibCK3.Parsing
         }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    [DebuggerDisplay("(ID:{ID}, Control: {IsControl}, Identifier: {AsIdentifier()})")]
-    internal readonly ref struct CK3Token
-    {
-        private readonly ushort ID;
-
-        public CK3Token(ushort ID)
-        {
-            this.ID = ID;
-        }
-
-        public bool IsControl => AsControl() switch
-        {
-            //
-            ControlTokens.Equals => true,
-            ControlTokens.Open => true,
-            ControlTokens.Close => true,
-            //type
-            ControlTokens.Int => true,
-            ControlTokens.Float => true,
-            ControlTokens.LPQStr => true,
-            ControlTokens.UInt => true,
-            _ => false
-        };
-
-        public ControlTokens AsControl() => (ControlTokens)ID;
-
-        public string AsIdentifier() => CK3Tokens.Tokens[ID];
-    }
-
     public class CK3Bin
     {
         private static readonly byte[] PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
@@ -158,13 +128,13 @@ namespace LibCK3.Parsing
 
             bool TryReadPair(ref SequenceReader<byte> reader)
             {
-                if (!TryReadToken(ref reader, out var token))
+                if (!reader.TryReadToken(out var token))
                     return false;
 
                 if (!token.IsControl)
                 {
                     //is identifier, so read the '='
-                    if (!TryReadToken(ref reader, out var controlToken))
+                    if (!reader.TryReadToken(out var controlToken))
                     {
                         reader.Rewind(sizeof(short));
                         return false;
@@ -201,21 +171,9 @@ namespace LibCK3.Parsing
                 return true;
             }
 
-            bool TryReadToken(ref SequenceReader<byte> reader, out CK3Token token)
-            {
-                if (!reader.TryReadLittleEndian(out ushort id))
-                {
-                    token = default;
-                    return false;
-                }
-
-                token = new CK3Token(id);
-                return true;
-            }
-
             bool TryReadIdentifier(ref SequenceReader<byte> reader, out string identifier)
             {
-                if (!TryReadToken(ref reader, out var firstToken))
+                if (!reader.TryReadToken(out var firstToken))
                 {
                     identifier = default;
                     return false;
@@ -239,61 +197,6 @@ namespace LibCK3.Parsing
                 }
             }
 
-            (bool isArray, bool isObject)? PeekType(ref SequenceReader<byte> reader, out CK3Token token)
-            {
-                if (!TryReadToken(ref reader, out token))
-                {
-                    return null;
-                }
-
-                try
-                {
-                    if (!TryReadToken(ref reader, out var newtoken))
-                    {
-                        return null;
-                    }
-
-                    if (newtoken.IsControl && newtoken.AsControl() == ControlTokens.Close)
-                    {
-                        return (isArray: false, isObject: true);
-                    }
-                    reader.Rewind(sizeof(ushort));
-
-                    if (TryReadIdentifier(ref reader, out _)
-                        && TryReadToken(ref reader, out var newControlToken)
-                        && newControlToken.IsControl && newControlToken.AsControl() == ControlTokens.Equals)
-                    {
-                        return (isArray: false, isObject: true);
-                    }
-                    else
-                    {
-                        return (isArray: true, isObject: false);
-                    }
-
-                    try
-                    {
-                        if (!TryReadToken(ref reader, out var newcontroltoken))
-                        {
-                            return null;
-                        }
-
-                        if (newcontroltoken.IsControl && newcontroltoken.AsControl() == ControlTokens.Equals)
-                        {
-                            return (isArray: false, isObject: true);
-                        }
-                    }
-                    finally
-                    {
-                        reader.Rewind(sizeof(ushort));
-                    }
-                }
-                finally
-                {
-                    reader.Rewind(sizeof(ushort));
-                }
-
-            }
-
             bool TryReadValue(ref SequenceReader<byte> reader, ParseState state)
             {
                 if (!reader.TryReadLittleEndian(out ushort id))
@@ -313,7 +216,7 @@ namespace LibCK3.Parsing
                 switch (token.AsControl())
                 {
                     case ControlTokens.Open:
-                        if (!TryReadToken(ref reader, out var isObjToken))
+                        if (!reader.TryReadToken(out var isObjToken))
                         {
                             return false;
                         }
@@ -345,7 +248,7 @@ namespace LibCK3.Parsing
                             }
 
                             copy.Advance(strLen);
-                            if (!TryReadToken(ref copy, out var detectToken))
+                            if (!copy.TryReadToken(out var detectToken))
                             {
                                 return false;
                             }
@@ -459,7 +362,7 @@ namespace LibCK3.Parsing
                     state = ParseState.Token;
                     break;
                 case ParseState.Token:
-                    if (!TryReadToken(ref reader, out var token))
+                    if (!reader.TryReadToken(out var token))
                     {
                         consumed = buffer.Start;
                         examined = buffer.End;
@@ -491,7 +394,7 @@ namespace LibCK3.Parsing
                     }
                     break;
                 case ParseState.Identifier:
-                    if (!TryReadToken(ref reader, out var idToken))
+                    if (!reader.TryReadToken(out var idToken))
                     {
                         consumed = buffer.Start;
                         examined = buffer.End;

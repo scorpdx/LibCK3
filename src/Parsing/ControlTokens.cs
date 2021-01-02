@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace LibCK3.Parsing
 {
-    internal enum ControlTokens
+    public enum ControlTokens
     {
         None = 0,
         Equals = 0x1,
