@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipelines;
@@ -38,6 +39,7 @@ namespace LibCK3.Parsing
             _writer.WriteStartObject();
 
             var state = ParseState.Checksum;
+            var objectStack = new Stack<bool>();
 
             try
             {
@@ -49,7 +51,7 @@ namespace LibCK3.Parsing
                         return;
                     }
 
-                    ParseSequence(result.Buffer, ref state, out var consumed, out var examined);
+                    ParseSequence(result.Buffer, ref state, objectStack, out var consumed, out var examined);
                     pipeReader.AdvanceTo(consumed, examined);
                 }
                 cancelToken.ThrowIfCancellationRequested();
@@ -62,21 +64,25 @@ namespace LibCK3.Parsing
             _writer.WriteEndObject();
         }
 
-        [Flags]
         private enum ParseState
         {
-            Checksum = 1 << 0,
-            Token = 1 << 1,
-            Identifier = 1 << 2,
-            IdentifierKey = 1 << 3,
-            Value = 1 << 4,
-
-            InContainer = 1 << 12,
-            InObject = InContainer | 1 << 13,
-            InArray = InContainer | 1 << 14
+            Checksum,
+            Token,
+            Identifier,
+            IdentifierKey,
+            Value,
+            Container,
         }
 
-        private void ParseSequence(ReadOnlySequence<byte> buffer, ref ParseState state, out SequencePosition consumed, out SequencePosition examined)
+        private struct CK3Element
+        {
+            public JsonEncodedText Identifier;
+            public bool? IsContainer;
+            public bool? IsObject;
+            public bool? IsArray;
+        }
+
+        private void ParseSequence(ReadOnlySequence<byte> buffer, ref ParseState state, Stack<bool> objectStack, out SequencePosition consumed, out SequencePosition examined)
         {
             #region Reader methods
 
@@ -112,7 +118,7 @@ namespace LibCK3.Parsing
                 return true;
             }
 
-            bool TryReadValue(ref SequenceReader<byte> reader, ParseState state)
+            bool TryReadValue(ref SequenceReader<byte> reader, ref ParseState state)
             {
                 if (!reader.TryReadToken(out var token))
                     return false;
@@ -128,14 +134,22 @@ namespace LibCK3.Parsing
                 switch (token.AsSpecial())
                 {
                     case SpecialTokens.Open:
-                        _writer.WriteStartObject();
-                        Debug.WriteLine("{");
-                        Debug.Indent();
+                        state = ParseState.Container;
                         return true;
                     case SpecialTokens.Close:
                         Debug.Unindent();
-                        Debug.WriteLine("}");
-                        _writer.WriteEndObject();
+
+                        if (objectStack.Pop())
+                        {
+                            Debug.WriteLine("}");
+                            _writer.WriteEndObject();
+                        }
+                        else
+                        {
+                            Debug.WriteLine("]");
+                            _writer.WriteEndArray();
+                        }
+
                         return true;
                     case SpecialTokens.Int:
                         {
@@ -179,6 +193,54 @@ namespace LibCK3.Parsing
 
                     default:
                         throw new InvalidOperationException("Unknown token while parsing value");
+                }
+            }
+
+            bool TryPeekContainerType(ref SequenceReader<byte> reader, ref CK3Element element)
+            {
+                var copy = reader;
+                if (!copy.TryReadToken(out var firstToken))
+                    return false;
+
+                if (firstToken.IsControl)
+                {
+                    if (firstToken.AsSpecial() == SpecialTokens.Close)
+                    {
+                        element.IsObject = true;
+                        return true;
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException("Unexpected control token while peeking container type");
+                    }
+                }
+                else /* is type or identifier, better check if this is a pair */
+                {
+                    //might be array or object w/ lpqstr identifier
+                    if (firstToken.AsSpecial() == SpecialTokens.LPQStr)
+                    {
+                        //need to check .Remaining to avoid a throw on .Advance with insufficient data
+                        if (!copy.TryReadLittleEndian(out short strLen) || copy.Remaining < strLen)
+                            return false;
+
+                        copy.Advance(strLen);
+                    }
+
+                    if (!copy.TryReadToken(out var secondToken))
+                        return false;
+
+                    if (secondToken.IsControl && secondToken.AsSpecial() == SpecialTokens.Equals)
+                    {
+                        element.IsObject = true;
+                        return true;
+                        //}
+                        //else
+                        //{
+                        //    throw new InvalidOperationException("Unexpected token following idstr while peeking container type");
+                    }
+
+                    element.IsArray = true;
+                    return true;
                 }
             }
             #endregion
@@ -229,7 +291,10 @@ namespace LibCK3.Parsing
                             state = ParseState.Value;
                             break;
                         case SpecialTokens.LPQStr:
-                            state = ParseState.IdentifierKey;
+                            if (objectStack.Peek())
+                            {
+                                state = ParseState.IdentifierKey;
+                            }
                             goto default;
                         case SpecialTokens.Open:
                         case SpecialTokens.Close:
@@ -255,15 +320,43 @@ namespace LibCK3.Parsing
                     break;
                 case ParseState.IdentifierKey:
                 case ParseState.Value:
-                    if (!TryReadValue(ref reader, state))
+                    var initState = state;
+                    if (!TryReadValue(ref reader, ref state))
                     {
                         consumed = buffer.Start;
                         examined = buffer.End;
                         return;
                     }
 
-                    //don't overwrite if TryReadValue changed state
+                    state = initState == state ? ParseState.Token : state;
+                    break;
+                case ParseState.Container:
+                    var element = new CK3Element();
+                    if (!TryPeekContainerType(ref reader, ref element))
+                    {
+                        consumed = buffer.Start;
+                        examined = buffer.End;
+                        return;
+                    }
+
+                    Debug.Assert(element.IsArray.GetValueOrDefault() ^ element.IsObject.GetValueOrDefault());
+
+                    if (element.IsObject.GetValueOrDefault())
+                    {
+                        _writer.WriteStartObject();
+                        objectStack.Push(true);
+                        Debug.WriteLine("{");
+                    }
+                    else if (element.IsArray.GetValueOrDefault())
+                    {
+                        _writer.WriteStartArray();
+                        objectStack.Push(false);
+                        Debug.WriteLine("[");
+                    }
+
+                    Debug.Indent();
                     state = ParseState.Token;
+
                     break;
             }
 
