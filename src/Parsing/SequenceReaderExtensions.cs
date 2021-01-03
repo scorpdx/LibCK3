@@ -21,6 +21,22 @@ namespace LibCK3.Parsing
             return result;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool TryReadLittleEndian(ref this SequenceReader<byte> reader, out uint value)
+        {
+            bool result = reader.TryReadLittleEndian(out int intValue);
+            value = (uint)intValue;
+            return result;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool TryReadLittleEndian(ref this SequenceReader<byte> reader, out ulong value)
+        {
+            bool result = reader.TryReadLittleEndian(out long longValue);
+            value = (ulong)longValue;
+            return result;
+        }
+
         public static bool TryReadToken(ref this SequenceReader<byte> reader, out CK3Token token)
         {
             if (!reader.TryReadLittleEndian(out ushort id))

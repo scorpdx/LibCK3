@@ -20,11 +20,19 @@ namespace LibCK3.Parsing
 
         private readonly Utf8JsonWriter _writer;
 
-        public CK3Bin(Stream stream, Utf8JsonWriter writer)
+        private const string GAMESTATE_ENTRY = "gamestate";
+
+        private ParseState _state;
+
+        private CK3Bin(Stream stream, Utf8JsonWriter writer, ParseState state)
         {
             _stream = stream;
             _writer = writer;
             _readPipe = PipeReader.Create(stream);
+            _state = state;
+        }
+        public CK3Bin(Stream stream, Utf8JsonWriter writer) : this(stream, writer, state: ParseState.Checksum)
+        {
         }
         public CK3Bin(string path, Utf8JsonWriter writer)
             : this(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite), writer)
@@ -38,8 +46,8 @@ namespace LibCK3.Parsing
         {
             _writer.WriteStartObject();
 
-            var state = ParseState.Checksum;
             var objectStack = new Stack<bool>();
+            bool reachedCompressedGamestate = false;
 
             try
             {
@@ -51,8 +59,25 @@ namespace LibCK3.Parsing
                         return;
                     }
 
-                    ParseSequence(result.Buffer, ref state, objectStack, out var consumed, out var examined);
+                    ParseSequence(result.Buffer, ref _state, objectStack, out var consumed, out var examined);
                     pipeReader.AdvanceTo(consumed, examined);
+
+                    if (!reachedCompressedGamestate && _state == ParseState.DecompressGamestate)
+                    {
+                        reachedCompressedGamestate = true;
+                    }
+
+                    if (reachedCompressedGamestate)
+                    {
+                        using var pipeStream = pipeReader.AsStream(true);
+                        using var zip = new System.IO.Compression.ZipArchive(pipeStream, System.IO.Compression.ZipArchiveMode.Read, true, Encoding.UTF8);
+
+                        using var gamestateStream = zip.GetEntry(GAMESTATE_ENTRY).Open();
+                        _writer.WritePropertyName(GAMESTATE_ENTRY);
+
+                        var gamestateBin = new CK3Bin(gamestateStream, _writer, ParseState.Token);
+                        await gamestateBin.ParseAsync(cancelToken);
+                    }
                 }
                 cancelToken.ThrowIfCancellationRequested();
             }
@@ -72,14 +97,14 @@ namespace LibCK3.Parsing
             IdentifierKey,
             Value,
             Container,
+            ContainerToRoot,
+            DecompressGamestate
         }
 
-        private struct CK3Element
+        private enum ContainerType
         {
-            public JsonEncodedText Identifier;
-            public bool? IsContainer;
-            public bool? IsObject;
-            public bool? IsArray;
+            Object,
+            Array
         }
 
         private void ParseSequence(ReadOnlySequence<byte> buffer, ref ParseState state, Stack<bool> objectStack, out SequencePosition consumed, out SequencePosition examined)
@@ -150,6 +175,11 @@ namespace LibCK3.Parsing
                             _writer.WriteEndArray();
                         }
 
+                        if (state == ParseState.ContainerToRoot)
+                        {
+                            state = ParseState.DecompressGamestate;
+                        }
+
                         return true;
                     case SpecialTokens.Int:
                         {
@@ -162,16 +192,21 @@ namespace LibCK3.Parsing
                             return true;
                         }
                     case SpecialTokens.UInt:
-                        {
-                            if (!reader.TryReadLittleEndian(out int intValue))
-                                return false;
+                        if (!reader.TryReadLittleEndian(out uint uintValue))
+                            return false;
 
-                            var uintValue = (uint)intValue;
-                            Debug.WriteLine($"uint={uintValue}");
-                            _writer.WriteNumberValue(uintValue);
+                        Debug.WriteLine($"uint={uintValue}");
+                        _writer.WriteNumberValue(uintValue);
 
-                            return true;
-                        }
+                        return true;
+                    case SpecialTokens.ULong:
+                        if (!reader.TryReadLittleEndian(out ulong ulongValue))
+                            return false;
+
+                        Debug.WriteLine($"ulong={ulongValue}");
+                        _writer.WriteNumberValue(ulongValue);
+
+                        return true;
                     case SpecialTokens.Float:
                         if (!reader.TryRead(out float floatValue))
                             return false;
@@ -196,22 +231,29 @@ namespace LibCK3.Parsing
                 }
             }
 
-            bool TryPeekContainerType(ref SequenceReader<byte> reader, ref CK3Element element)
+            bool TryPeekContainerType(ref SequenceReader<byte> reader, out ContainerType? containerType)
             {
                 var copy = reader;
                 if (!copy.TryReadToken(out var firstToken))
+                {
+                    containerType = default;
                     return false;
+                }
 
                 if (firstToken.IsControl)
                 {
-                    if (firstToken.AsSpecial() == SpecialTokens.Close)
+                    switch (firstToken.AsSpecial())
                     {
-                        element.IsObject = true;
-                        return true;
-                    }
-                    else
-                    {
-                        throw new InvalidOperationException("Unexpected control token while peeking container type");
+                        //nested openers means outer array, inner container
+                        case SpecialTokens.Open:
+                            containerType = ContainerType.Array;
+                            return true;
+                        //treat empty as object
+                        case SpecialTokens.Close:
+                            containerType = ContainerType.Object;
+                            return true;
+                        default:
+                            throw new InvalidOperationException("Unexpected control token while peeking container type");
                     }
                 }
                 else /* is type or identifier, better check if this is a pair */
@@ -221,17 +263,23 @@ namespace LibCK3.Parsing
                     {
                         //need to check .Remaining to avoid a throw on .Advance with insufficient data
                         if (!copy.TryReadLittleEndian(out short strLen) || copy.Remaining < strLen)
+                        {
+                            containerType = default;
                             return false;
+                        }
 
                         copy.Advance(strLen);
                     }
 
                     if (!copy.TryReadToken(out var secondToken))
+                    {
+                        containerType = default;
                         return false;
+                    }
 
                     if (secondToken.IsControl && secondToken.AsSpecial() == SpecialTokens.Equals)
                     {
-                        element.IsObject = true;
+                        containerType = ContainerType.Object;
                         return true;
                         //}
                         //else
@@ -239,23 +287,13 @@ namespace LibCK3.Parsing
                         //    throw new InvalidOperationException("Unexpected token following idstr while peeking container type");
                     }
 
-                    element.IsArray = true;
+                    containerType = ContainerType.Array;
                     return true;
                 }
             }
             #endregion
 
             var reader = new SequenceReader<byte>(buffer);
-            //ReadOnlySpan<byte> justRead;
-            //while (!reader.TryReadTo(out justRead, PKZIP_MAGIC, false))
-            //{
-            //    Debug.WriteLine("NO");
-            //    reader.Advance(reader.UnreadSpan.Length);
-
-            //    if (reader.End) break;
-            //}
-            //Debug.WriteLine("YES");
-
             switch (state)
             {
                 case ParseState.Checksum:
@@ -296,6 +334,12 @@ namespace LibCK3.Parsing
                                 state = ParseState.IdentifierKey;
                             }
                             goto default;
+                        case SpecialTokens.Close when objectStack.Count == 1:
+                            if (reader.IsNext(PKZIP_MAGIC, false))
+                            {
+                                state = ParseState.ContainerToRoot;
+                            }
+                            goto default;
                         case SpecialTokens.Open:
                         case SpecialTokens.Close:
                         default:
@@ -318,6 +362,9 @@ namespace LibCK3.Parsing
 
                     state = ParseState.Token;
                     break;
+                //needed to finish writing container end
+                case ParseState.ContainerToRoot:
+                //needed for idstr object property names
                 case ParseState.IdentifierKey:
                 case ParseState.Value:
                     var initState = state;
@@ -331,27 +378,25 @@ namespace LibCK3.Parsing
                     state = initState == state ? ParseState.Token : state;
                     break;
                 case ParseState.Container:
-                    var element = new CK3Element();
-                    if (!TryPeekContainerType(ref reader, ref element))
+                    if (!TryPeekContainerType(ref reader, out var containerType) || containerType == null)
                     {
                         consumed = buffer.Start;
                         examined = buffer.End;
                         return;
                     }
 
-                    Debug.Assert(element.IsArray.GetValueOrDefault() ^ element.IsObject.GetValueOrDefault());
-
-                    if (element.IsObject.GetValueOrDefault())
+                    switch (containerType.Value)
                     {
-                        _writer.WriteStartObject();
-                        objectStack.Push(true);
-                        Debug.WriteLine("{");
-                    }
-                    else if (element.IsArray.GetValueOrDefault())
-                    {
-                        _writer.WriteStartArray();
-                        objectStack.Push(false);
-                        Debug.WriteLine("[");
+                        case ContainerType.Object:
+                            _writer.WriteStartObject();
+                            objectStack.Push(true);
+                            Debug.WriteLine("{");
+                            break;
+                        case ContainerType.Array:
+                            _writer.WriteStartArray();
+                            objectStack.Push(false);
+                            Debug.WriteLine("[");
+                            break;
                     }
 
                     Debug.Indent();

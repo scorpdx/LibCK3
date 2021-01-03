@@ -32,6 +32,7 @@ namespace LibCK3.Parsing
             SpecialTokens.Bool => true,
             SpecialTokens.LPQStr => true,
             SpecialTokens.UInt => true,
+            SpecialTokens.ULong => true,
             _ => false
         };
 
