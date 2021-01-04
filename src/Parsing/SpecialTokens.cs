@@ -28,6 +28,10 @@ namespace LibCK3.Parsing
         //0x15 = idtype
         UInt = 0x14,
         /// <summary>
+        /// Length-prefixed string
+        /// </summary>
+        LPStr = 0x17,
+        /// <summary>
         /// Token identifier "rgb"
         /// </summary>
         RGB = 0x243,

@@ -31,6 +31,7 @@ namespace LibCK3.Parsing
             SpecialTokens.Float => true,
             SpecialTokens.Double => true,
             SpecialTokens.LPQStr => true,
+            SpecialTokens.LPStr => true,
             SpecialTokens.RGB => true,
             _ => false
         };

@@ -54,7 +54,7 @@ namespace LibCK3.Parsing
                 while (!cancelToken.IsCancellationRequested)
                 {
                     var result = await pipeReader.ReadAsync(cancelToken);
-                    if (result.IsCanceled)
+                    if (result.IsCanceled || result.IsCompleted)
                     {
                         return;
                     }
@@ -235,6 +235,7 @@ namespace LibCK3.Parsing
 
                         return true;
                     case SpecialTokens.LPQStr:
+                    case SpecialTokens.LPStr:
                         return TryReadLPQStr(ref reader, state == ParseState.IdentifierKey);
                     case SpecialTokens.RGB:
                         if (!reader.TryReadToken(out var openToken) || openToken.AsSpecial() != SpecialTokens.Open)
@@ -300,17 +301,33 @@ namespace LibCK3.Parsing
                 }
                 else /* is type or identifier, better check if this is a pair */
                 {
-                    //might be array or object w/ lpqstr identifier
-                    if (firstToken.AsSpecial() == SpecialTokens.LPQStr)
+                    //might be array or object w/ typed identifier
+                    if (firstToken.IsType)
                     {
-                        //need to check .Remaining to avoid a throw on .Advance with insufficient data
-                        if (!copy.TryReadLittleEndian(out short strLen) || copy.Remaining < strLen)
+                        switch (firstToken.AsSpecial())
                         {
-                            containerType = default;
-                            return false;
-                        }
+                            case SpecialTokens.LPQStr:
+                            case SpecialTokens.LPStr:
+                                //need to check .Remaining to avoid a throw on .Advance with insufficient data
+                                if (!copy.TryReadLittleEndian(out short strLen) || copy.Remaining < strLen)
+                                {
+                                    containerType = default;
+                                    return false;
+                                }
 
-                        copy.Advance(strLen);
+                                copy.Advance(strLen);
+                                break;
+                            case SpecialTokens.Int:
+                                if (!copy.TryReadLittleEndian(out int _))
+                                {
+                                    containerType = default;
+                                    return false;
+                                }
+                                break;
+                            default:
+                                containerType = ContainerType.Array;
+                                return true;
+                        }
                     }
 
                     if (!copy.TryReadToken(out var secondToken))
@@ -359,7 +376,7 @@ namespace LibCK3.Parsing
                     }
                     else if (!token.IsSpecial)
                     {
-                        state = ParseState.Identifier;
+                        state = (objectStack.TryPeek(out bool inObject) && !inObject) ? ParseState.Value : ParseState.Identifier;
                         consumed = buffer.Start;
                         examined = consumed;
                         return;
@@ -371,6 +388,7 @@ namespace LibCK3.Parsing
                             state = ParseState.Value;
                             break;
                         case SpecialTokens.LPQStr:
+                        case SpecialTokens.LPStr:
                         case SpecialTokens.Int:
                             if (objectStack.Peek())
                             {
