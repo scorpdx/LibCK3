@@ -177,15 +177,29 @@ namespace LibCK3.Parsing
                         if (!reader.TryReadLittleEndian(out int intValue))
                             return false;
 
-                        if (state == ParseState.IdentifierKey)
+                        var asDate = CK3Date.FromValue(intValue);
+                        if (asDate != null)
                         {
-                            //Debug.WriteLine($"idint={intValue}");
-                            _writer.WritePropertyName(intValue.ToString());
-                            return true;
+                            if (state == ParseState.IdentifierKey)
+                            {
+                                _writer.WritePropertyName(asDate.ToString());
+                            }
+                            else
+                            {
+                                _writer.WriteStringValue(asDate.ToString());
+                            }
                         }
-
-                        //Debug.WriteLine($"int={intValue}");
-                        _writer.WriteNumberValue(intValue);
+                        else
+                        {
+                            if (state == ParseState.IdentifierKey)
+                            {
+                                _writer.WritePropertyName(intValue.ToString());
+                            }
+                            else
+                            {
+                                _writer.WriteNumberValue(intValue);
+                            }
+                        }
 
                         return true;
                     case SpecialTokens.UInt:
@@ -263,7 +277,7 @@ namespace LibCK3.Parsing
                         if (!reader.TryReadToken(out var closeToken) || closeToken.AsSpecial() != SpecialTokens.Close)
                             return false;
 
-                        _writer.WriteCommentValue("RGB");
+                        //_writer.WriteCommentValue("RGB");
                         _writer.WriteStartArray();
                         _writer.WriteNumberValue(R);
                         _writer.WriteNumberValue(G);
