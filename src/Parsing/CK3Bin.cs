@@ -186,10 +186,18 @@ namespace LibCK3.Parsing
 
                         //Debug.WriteLine($"int={intValue}");
                         _writer.WriteNumberValue(intValue);
+
                         return true;
                     case SpecialTokens.UInt:
                         if (!reader.TryReadLittleEndian(out uint uintValue))
                             return false;
+
+                        if (state == ParseState.IdentifierKey)
+                        {
+                            //Debug.WriteLine($"iduint={uintValue}");
+                            _writer.WritePropertyName(uintValue.ToString());
+                            return true;
+                        }
 
                         //Debug.WriteLine($"uint={uintValue}");
                         _writer.WriteNumberValue(uintValue);
@@ -311,14 +319,26 @@ namespace LibCK3.Parsing
 
                                 copy.Advance(strLen);
                                 break;
+                            case SpecialTokens.UInt:
                             case SpecialTokens.Int:
+                            case SpecialTokens.Float:
                                 if (!copy.TryReadLittleEndian(out int _))
                                 {
                                     containerType = default;
                                     return false;
                                 }
                                 break;
+                            case SpecialTokens.ULong:
+                            case SpecialTokens.Double:
+                                if (!copy.TryReadLittleEndian(out long _))
+                                {
+                                    containerType = default;
+                                    return false;
+                                }
+                                break;
                             default:
+                                //This is not correct, but tries to be forgiving in the case of an unexpected identifier type
+                                //which wasn't skipped, so treat the container as an array and dump everything inside
                                 containerType = ContainerType.Array;
                                 return true;
                         }
@@ -381,14 +401,17 @@ namespace LibCK3.Parsing
                         case SpecialTokens.Equals:
                             state = ParseState.Value;
                             break;
+                        //These values can all be used as identifiers
                         case SpecialTokens.LPQStr:
                         case SpecialTokens.LPStr:
                         case SpecialTokens.Int:
+                        case SpecialTokens.UInt:
                             if (objectStack.Peek())
                             {
                                 state = ParseState.IdentifierKey;
                             }
                             goto default;
+                        //
                         case SpecialTokens.Close when objectStack.Count == 1:
                             if (reader.IsNext(PKZIP_MAGIC, false))
                             {
