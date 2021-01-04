@@ -47,7 +47,6 @@ namespace LibCK3.Parsing
             _writer.WriteStartObject();
 
             var objectStack = new Stack<bool>();
-            bool reachedCompressedGamestate = false;
 
             try
             {
@@ -56,18 +55,13 @@ namespace LibCK3.Parsing
                     var result = await pipeReader.ReadAsync(cancelToken);
                     if (result.IsCanceled || result.IsCompleted)
                     {
-                        return;
+                        break;
                     }
 
                     ParseSequence(result.Buffer, ref _state, objectStack, out var consumed, out var examined);
                     pipeReader.AdvanceTo(consumed, examined);
 
-                    if (!reachedCompressedGamestate && _state == ParseState.DecompressGamestate)
-                    {
-                        reachedCompressedGamestate = true;
-                    }
-
-                    if (reachedCompressedGamestate)
+                    if (_state == ParseState.DecompressGamestate)
                     {
                         using var pipeStream = pipeReader.AsStream(true);
                         using var zip = new System.IO.Compression.ZipArchive(pipeStream, System.IO.Compression.ZipArchiveMode.Read, true, Encoding.UTF8);
