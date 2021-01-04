@@ -42,12 +42,11 @@ namespace LibCK3.Parsing
 
         public static CK3Date? FromValue(int dateValue)
         {
-            var hours = dateValue % 24;
-            dateValue /= 24;
-            var daysSinceJan1 = dateValue % 365;
-            dateValue /= 365;
-            int year;
-            if ((year = dateValue - 5000) < 0)
+            //var hours = dateValue % 24;
+            dateValue = Math.DivRem(dateValue / 24, 365, out int daysSinceJan1);
+
+            var year = dateValue - 5000;
+            if (year < 0)
                 return null;
 
             var (month, day) = MonthDayFromJulian(daysSinceJan1);
