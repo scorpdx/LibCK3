@@ -27,6 +27,17 @@ namespace LibCK3.Parsing
         //0x14
         //0x15 = idtype
         UInt = 0x14,
-        ULong = 0x29C
+        /// <summary>
+        /// Token identifier "rgb"
+        /// </summary>
+        RGB = 0x243,
+        /// <summary>
+        /// Token identifier "unum64"
+        /// </summary>
+        ULong = 0x29C,
+        /// <summary>
+        /// Token identifier "long_float"
+        /// </summary>
+        Double = 0x167,
     }
 }

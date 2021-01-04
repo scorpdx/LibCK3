@@ -5,15 +5,12 @@ using System.Text.Json;
 namespace LibCK3.Parsing
 {
     [StructLayout(LayoutKind.Sequential)]
-    [DebuggerDisplay("(ID:{ID}, Control: {IsControl}, Identifier: {AsIdentifier()})")]
+    [DebuggerDisplay("(ID:{ID}, Special: {IsSpecial}, Identifier: {AsIdentifier()})")]
     public readonly struct CK3Token
     {
         private readonly ushort ID;
 
-        public CK3Token(ushort ID)
-        {
-            this.ID = ID;
-        }
+        public CK3Token(ushort ID) => this.ID = ID;
 
         public bool IsSpecial => IsControl || IsType;
 
@@ -27,12 +24,14 @@ namespace LibCK3.Parsing
 
         public bool IsType => AsSpecial() switch
         {
-            SpecialTokens.Int => true,
-            SpecialTokens.Float => true,
             SpecialTokens.Bool => true,
-            SpecialTokens.LPQStr => true,
+            SpecialTokens.Int => true,
             SpecialTokens.UInt => true,
             SpecialTokens.ULong => true,
+            SpecialTokens.Float => true,
+            SpecialTokens.Double => true,
+            SpecialTokens.LPQStr => true,
+            SpecialTokens.RGB => true,
             _ => false
         };
 

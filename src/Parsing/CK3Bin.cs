@@ -117,9 +117,7 @@ namespace LibCK3.Parsing
             bool TryReadLPQStr(ref SequenceReader<byte> reader, bool asPropertyName = false)
             {
                 if (!reader.TryReadLittleEndian(out ushort strLen))
-                {
                     return false;
-                }
 
                 Span<byte> str = stackalloc byte[strLen];
                 if (!reader.TryCopyTo(str))
@@ -131,12 +129,12 @@ namespace LibCK3.Parsing
                 if (!asPropertyName)
                 {
                     _writer.WriteStringValue(str);
-                    Debug.WriteLine($"str={Encoding.UTF8.GetString(str)}");
+                    //Debug.WriteLine($"str={Encoding.UTF8.GetString(str)}");
                 }
                 else
                 {
                     _writer.WritePropertyName(str);
-                    Debug.WriteLine($"idstr={Encoding.UTF8.GetString(str)}");
+                    //Debug.WriteLine($"idstr={Encoding.UTF8.GetString(str)}");
                 }
 
                 reader.Advance(strLen);
@@ -151,7 +149,7 @@ namespace LibCK3.Parsing
                 if (!token.IsSpecial)
                 {
                     var identifier = token.AsIdentifier();
-                    Debug.WriteLine($"identifier={identifier}");
+                    //Debug.WriteLine($"identifier={identifier}");
                     _writer.WriteStringValue(identifier);
                     return true;
                 }
@@ -162,16 +160,16 @@ namespace LibCK3.Parsing
                         state = ParseState.Container;
                         return true;
                     case SpecialTokens.Close:
-                        Debug.Unindent();
+                        //Debug.Unindent();
 
                         if (objectStack.Pop())
                         {
-                            Debug.WriteLine("}");
+                            //Debug.WriteLine("}");
                             _writer.WriteEndObject();
                         }
                         else
                         {
-                            Debug.WriteLine("]");
+                            //Debug.WriteLine("]");
                             _writer.WriteEndArray();
                         }
 
@@ -182,20 +180,24 @@ namespace LibCK3.Parsing
 
                         return true;
                     case SpecialTokens.Int:
+                        if (!reader.TryReadLittleEndian(out int intValue))
+                            return false;
+
+                        if (state == ParseState.IdentifierKey)
                         {
-                            if (!reader.TryReadLittleEndian(out int intValue))
-                                return false;
-
-                            Debug.WriteLine($"int={intValue}");
-                            _writer.WriteNumberValue(intValue);
-
+                            //Debug.WriteLine($"idint={intValue}");
+                            _writer.WritePropertyName(intValue.ToString());
                             return true;
                         }
+
+                        //Debug.WriteLine($"int={intValue}");
+                        _writer.WriteNumberValue(intValue);
+                        return true;
                     case SpecialTokens.UInt:
                         if (!reader.TryReadLittleEndian(out uint uintValue))
                             return false;
 
-                        Debug.WriteLine($"uint={uintValue}");
+                        //Debug.WriteLine($"uint={uintValue}");
                         _writer.WriteNumberValue(uintValue);
 
                         return true;
@@ -203,7 +205,7 @@ namespace LibCK3.Parsing
                         if (!reader.TryReadLittleEndian(out ulong ulongValue))
                             return false;
 
-                        Debug.WriteLine($"ulong={ulongValue}");
+                        //Debug.WriteLine($"ulong={ulongValue}");
                         _writer.WriteNumberValue(ulongValue);
 
                         return true;
@@ -211,7 +213,7 @@ namespace LibCK3.Parsing
                         if (!reader.TryRead(out float floatValue))
                             return false;
 
-                        Debug.WriteLine($"float={floatValue}");
+                        //Debug.WriteLine($"float={floatValue}");
                         _writer.WriteNumberValue(floatValue);
 
                         return true;
@@ -219,12 +221,52 @@ namespace LibCK3.Parsing
                         if (!reader.TryRead(out bool boolValue))
                             return false;
 
-                        Debug.WriteLine($"bool={boolValue}");
+                        //Debug.WriteLine($"bool={boolValue}");
                         _writer.WriteBooleanValue(boolValue);
+
+                        return true;
+                    case SpecialTokens.Double:
+                        if (!reader.TryRead(out long ck3DoubleValue))
+                            return false;
+
+                        var doubleValue = ck3DoubleValue / 1000.0D;
+                        //Debug.WriteLine($"double={doubleValue}");
+                        _writer.WriteNumberValue(doubleValue);
 
                         return true;
                     case SpecialTokens.LPQStr:
                         return TryReadLPQStr(ref reader, state == ParseState.IdentifierKey);
+                    case SpecialTokens.RGB:
+                        if (!reader.TryReadToken(out var openToken) || openToken.AsSpecial() != SpecialTokens.Open)
+                            return false;
+
+                        //every color segment uint prefixed by unused ushort
+                        //0-2   ushort:{
+                        //2-4   ushort:_
+                        //4-8   uint:R
+                        //8-A   ushort:_
+                        //A-E   uint:G
+                        //E-10  ushort:_
+                        //10-14 uint:B
+                        //14-16 ushort:}
+
+                        if (!reader.TryReadLittleEndian(out ushort _) || !reader.TryReadLittleEndian(out uint R))
+                            return false;
+                        if (!reader.TryReadLittleEndian(out ushort _) || !reader.TryReadLittleEndian(out uint G))
+                            return false;
+                        if (!reader.TryReadLittleEndian(out ushort _) || !reader.TryReadLittleEndian(out uint B))
+                            return false;
+
+                        if (!reader.TryReadToken(out var closeToken) || closeToken.AsSpecial() != SpecialTokens.Close)
+                            return false;
+
+                        _writer.WriteCommentValue("RGB");
+                        _writer.WriteStartArray();
+                        _writer.WriteNumberValue(R);
+                        _writer.WriteNumberValue(G);
+                        _writer.WriteNumberValue(B);
+                        _writer.WriteEndArray();
+                        return true;
 
                     default:
                         throw new InvalidOperationException("Unknown token while parsing value");
@@ -329,6 +371,7 @@ namespace LibCK3.Parsing
                             state = ParseState.Value;
                             break;
                         case SpecialTokens.LPQStr:
+                        case SpecialTokens.Int:
                             if (objectStack.Peek())
                             {
                                 state = ParseState.IdentifierKey;
@@ -357,7 +400,7 @@ namespace LibCK3.Parsing
                         return;
                     }
 
-                    Debug.WriteLine($"tag={idToken.AsIdentifier()}");
+                    //Debug.WriteLine($"tag={idToken.AsIdentifier()}");
                     _writer.WritePropertyName(idToken.AsIdentifier());
 
                     state = ParseState.Token;
@@ -390,16 +433,16 @@ namespace LibCK3.Parsing
                         case ContainerType.Object:
                             _writer.WriteStartObject();
                             objectStack.Push(true);
-                            Debug.WriteLine("{");
+                            //Debug.WriteLine("{");
                             break;
                         case ContainerType.Array:
                             _writer.WriteStartArray();
                             objectStack.Push(false);
-                            Debug.WriteLine("[");
+                            //Debug.WriteLine("[");
                             break;
                     }
 
-                    Debug.Indent();
+                    //Debug.Indent();
                     state = ParseState.Token;
 
                     break;
