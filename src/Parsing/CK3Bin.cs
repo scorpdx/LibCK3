@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.IO.Pipelines;
 using System.Text;
@@ -63,10 +62,10 @@ namespace LibCK3.Parsing
 
                     if (_state == ParseState.DecompressGamestate)
                     {
-                        using var pipeStream = pipeReader.AsStream(true);
+                        await using var pipeStream = pipeReader.AsStream(true);
                         using var zip = new System.IO.Compression.ZipArchive(pipeStream, System.IO.Compression.ZipArchiveMode.Read, true, Encoding.UTF8);
 
-                        using var gamestateStream = zip.GetEntry(GAMESTATE_ENTRY).Open();
+                        await using var gamestateStream = zip.GetEntry(GAMESTATE_ENTRY).Open();
                         _writer.WritePropertyName(GAMESTATE_ENTRY);
 
                         var gamestateBin = new CK3Bin(gamestateStream, _writer, ParseState.Token);
@@ -177,16 +176,22 @@ namespace LibCK3.Parsing
                         if (!reader.TryReadLittleEndian(out int intValue))
                             return false;
 
-                        var asDate = CK3Date.FromValue(intValue);
-                        if (asDate != null)
+                        if (CK3Date.TryParse(intValue, out var date))
                         {
+                            Span<byte> utf8Date = stackalloc byte[11]; //99999.99.99
+                            if (!date.ToUtf8String(ref utf8Date, out int bytesWritten))
+                                //This should never happen
+                                throw new InvalidOperationException("utf8Date buffer was too small to format");
+
+                            //Trim unwritten ends
+                            utf8Date = utf8Date[..bytesWritten];
                             if (state == ParseState.IdentifierKey)
                             {
-                                _writer.WritePropertyName(asDate.ToString());
+                                _writer.WritePropertyName(utf8Date);
                             }
                             else
                             {
-                                _writer.WriteStringValue(asDate.ToString());
+                                _writer.WriteStringValue(utf8Date);
                             }
                         }
                         else

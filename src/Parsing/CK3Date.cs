@@ -1,37 +1,17 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using System.Buffers.Text;
 
 namespace LibCK3.Parsing
 {
     public readonly struct CK3Date
     {
-        /*
-        let _hours = s % 24;
-        s /= 24;
-        let days_since_jan1 = s % 365;
-        s /= 365;
-        let year = s.checked_sub(5000).unwrap_or(0);
-        if year < 1 {
-            return None;
-        }
+        private const byte DATE_SEPARATOR = (byte)'.';
 
-        let (month, day) = month_day_from_julian(days_since_jan1);
-
-        Some(Date {
-            year: year as u16,
-            month: month as u8,
-            day: day as u8,
-        })
-         * 
-         * */
         public readonly ushort Year;
         public readonly byte Month;
         public readonly byte Day;
 
-        private CK3Date(ushort year, byte month, byte day)
+        public CK3Date(ushort year, byte month, byte day)
         {
             Year = year;
             Month = month;
@@ -40,17 +20,45 @@ namespace LibCK3.Parsing
 
         public override string ToString() => $"{Year}.{Month}.{Day}";
 
-        public static CK3Date? FromValue(int dateValue)
+        public bool ToUtf8String(ref Span<byte> utf8Date, out int bytesWritten)
+        {
+            if (!Utf8Formatter.TryFormat(Year, utf8Date, out bytesWritten))
+            {
+                return false;
+            }
+            utf8Date[bytesWritten++] = DATE_SEPARATOR;
+
+            if (!Utf8Formatter.TryFormat(Month, utf8Date[bytesWritten..], out int monthBytes))
+            {
+                return false;
+            }
+            bytesWritten += monthBytes;
+            utf8Date[bytesWritten++] = DATE_SEPARATOR;
+
+            if(!Utf8Formatter.TryFormat(Day, utf8Date[bytesWritten..], out int dayBytes))
+            {
+                return false;
+            }
+            bytesWritten += dayBytes;
+
+            return true;
+        }
+
+        public static bool TryParse(int dateValue, out CK3Date date)
         {
             //var hours = dateValue % 24;
             dateValue = Math.DivRem(dateValue / 24, 365, out int daysSinceJan1);
 
             var year = dateValue - 5000;
             if (year < 0)
-                return null;
+            {
+                date = default;
+                return false;
+            }
 
             var (month, day) = MonthDayFromJulian(daysSinceJan1);
-            return new CK3Date((ushort)year, (byte)month, (byte)day);
+            date = new CK3Date((ushort)year, (byte)month, (byte)day);
+            return true;
         }
 
         //from jomini::common::date month_day_from_julian
