@@ -193,9 +193,7 @@ namespace LibCK3.Parsing
                                     //This should never happen
                                     throw new InvalidOperationException("utf8Int buffer was too small to format");
 
-                                //Trim unwritten ends
-                                utf8Int = utf8Int[..bytesWritten];
-                                _writer.WritePropertyName(utf8Int);
+                                _writer.WritePropertyName(utf8Int[..bytesWritten]);
                             }
                             else
                             {
@@ -210,8 +208,12 @@ namespace LibCK3.Parsing
 
                         if (state == ParseState.IdentifierKey)
                         {
-                            //Debug.WriteLine($"iduint={uintValue}");
-                            _writer.WritePropertyName(uintValue.ToString());
+                            Span<byte> utf8Uint = stackalloc byte[10]; //4294967295
+                            if (!Utf8Formatter.TryFormat(uintValue, utf8Uint, out int bytesWritten))
+                                //This should never happen
+                                throw new InvalidOperationException("utf8Uint buffer was too small to format");
+
+                            _writer.WritePropertyName(utf8Uint[..bytesWritten]);
                             return true;
                         }
 
