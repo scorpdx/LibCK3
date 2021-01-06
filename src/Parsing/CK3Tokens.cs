@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Collections.Immutable;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -11,7 +11,7 @@ namespace LibCK3.Parsing
     {
         private const string TOKEN_FILE = "assets/ck3.tok";
 
-        private static readonly Lazy<ImmutableDictionary<ushort, JsonEncodedText>> _tokens = new(() =>
+        private static readonly Lazy<Dictionary<ushort, JsonEncodedText>> _tokens = new(() =>
           File.ReadLines(TOKEN_FILE, Encoding.UTF8)
               //Ignore comments
               .Where(l => !l.StartsWith('#'))
@@ -22,9 +22,9 @@ namespace LibCK3.Parsing
               //Convert to ushort
               .Select(t => (ushort.Parse(t.Item1, System.Globalization.NumberStyles.AllowHexSpecifier), t.Item2))
               //
-              .ToImmutableDictionary(t => t.Item1, t => JsonEncodedText.Encode(t.Item2))
+              .ToDictionary(t => t.Item1, t => JsonEncodedText.Encode(t.Item2))
         );
 
-        public static IImmutableDictionary<ushort, JsonEncodedText> Tokens => _tokens.Value;
+        public static IReadOnlyDictionary<ushort, JsonEncodedText> Tokens => _tokens.Value;
     }
 }
