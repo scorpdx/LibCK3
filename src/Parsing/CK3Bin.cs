@@ -13,6 +13,7 @@ namespace LibCK3.Parsing
 {
     public class CK3Bin
     {
+        private const string GAMESTATE_ENTRY = "gamestate";
         private static readonly byte[] PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
 
         private readonly PipeReader _readPipe;
@@ -20,7 +21,7 @@ namespace LibCK3.Parsing
 
         private readonly Utf8JsonWriter _writer;
 
-        private const string GAMESTATE_ENTRY = "gamestate";
+        private readonly bool _parseGamestate;
 
         private ParseState _state;
 
@@ -31,11 +32,12 @@ namespace LibCK3.Parsing
             _readPipe = PipeReader.Create(stream);
             _state = state;
         }
-        public CK3Bin(Stream stream, Utf8JsonWriter writer) : this(stream, writer, state: ParseState.Checksum)
+        public CK3Bin(Stream stream, Utf8JsonWriter writer, bool parseGamestate = true) : this(stream, writer, state: ParseState.Checksum)
         {
+            _parseGamestate = parseGamestate;
         }
-        public CK3Bin(string path, Utf8JsonWriter writer)
-            : this(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite), writer)
+        public CK3Bin(string path, Utf8JsonWriter writer, bool parseGamestate = true)
+            : this(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite), writer, parseGamestate)
         {
         }
 
@@ -63,6 +65,11 @@ namespace LibCK3.Parsing
 
                     if (_state == ParseState.DecompressGamestate)
                     {
+                        if (!_parseGamestate)
+                        {
+                            break;
+                        }
+
                         await using var pipeStream = pipeReader.AsStream(true);
                         using var zip = new System.IO.Compression.ZipArchive(pipeStream, System.IO.Compression.ZipArchiveMode.Read, true, Encoding.UTF8);
 
@@ -435,9 +442,7 @@ namespace LibCK3.Parsing
                             case SpecialTokens.Open:
                             case SpecialTokens.Close:
                             default:
-                                state = /*state != ParseState.Token ? state :*/ ParseState.Value;
-                                //consumed = buffer.Start;
-                                //examined = consumed;
+                                state = ParseState.Value;
                                 goto InlineValue;
                         }
                         break;
