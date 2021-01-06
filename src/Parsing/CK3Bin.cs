@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Buffers.Text;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipelines;
@@ -114,6 +115,7 @@ namespace LibCK3.Parsing
                 Span<byte> str = stackalloc byte[strLen];
                 if (!reader.TryCopyTo(str))
                 {
+                    //TODO: can avoid rewind
                     reader.Rewind(sizeof(ushort));
                     return false;
                 }
@@ -121,12 +123,10 @@ namespace LibCK3.Parsing
                 if (!asPropertyName)
                 {
                     _writer.WriteStringValue(str);
-                    //Debug.WriteLine($"str={Encoding.UTF8.GetString(str)}");
                 }
                 else
                 {
                     _writer.WritePropertyName(str);
-                    //Debug.WriteLine($"idstr={Encoding.UTF8.GetString(str)}");
                 }
 
                 reader.Advance(strLen);
@@ -188,7 +188,14 @@ namespace LibCK3.Parsing
                         {
                             if (state == ParseState.IdentifierKey)
                             {
-                                _writer.WritePropertyName(intValue.ToString());
+                                Span<byte> utf8Int = stackalloc byte[11]; //-2147483648
+                                if (!Utf8Formatter.TryFormat(intValue, utf8Int, out int bytesWritten))
+                                    //This should never happen
+                                    throw new InvalidOperationException("utf8Int buffer was too small to format");
+
+                                //Trim unwritten ends
+                                utf8Int = utf8Int[..bytesWritten];
+                                _writer.WritePropertyName(utf8Int);
                             }
                             else
                             {
@@ -208,42 +215,32 @@ namespace LibCK3.Parsing
                             return true;
                         }
 
-                        //Debug.WriteLine($"uint={uintValue}");
                         _writer.WriteNumberValue(uintValue);
-
                         return true;
                     case SpecialTokens.ULong:
                         if (!reader.TryReadLittleEndian(out ulong ulongValue))
                             return false;
 
-                        //Debug.WriteLine($"ulong={ulongValue}");
                         _writer.WriteNumberValue(ulongValue);
-
                         return true;
                     case SpecialTokens.Float:
                         if (!reader.TryRead(out float floatValue))
                             return false;
 
-                        //Debug.WriteLine($"float={floatValue}");
                         _writer.WriteNumberValue(floatValue);
-
                         return true;
                     case SpecialTokens.Bool:
                         if (!reader.TryRead(out bool boolValue))
                             return false;
 
-                        //Debug.WriteLine($"bool={boolValue}");
                         _writer.WriteBooleanValue(boolValue);
-
                         return true;
                     case SpecialTokens.Double:
                         if (!reader.TryRead(out long ck3DoubleValue))
                             return false;
 
                         var doubleValue = ck3DoubleValue / 1000.0D;
-                        //Debug.WriteLine($"double={doubleValue}");
                         _writer.WriteNumberValue(doubleValue);
-
                         return true;
                     case SpecialTokens.LPQStr:
                     case SpecialTokens.LPStr:
