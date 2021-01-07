@@ -121,11 +121,7 @@ namespace LibCK3.Parsing
 
                 Span<byte> str = stackalloc byte[strLen];
                 if (!reader.TryCopyTo(str))
-                {
-                    //TODO: can avoid rewind
-                    reader.Rewind(sizeof(ushort));
                     return false;
-                }
 
                 if (!asPropertyName)
                 {
