@@ -37,6 +37,7 @@ namespace LibCK3.Parsing
             return result;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static bool TryReadToken(ref this SequenceReader<byte> reader, out CK3Token token)
         {
             if (!reader.TryReadLittleEndian(out ushort id))

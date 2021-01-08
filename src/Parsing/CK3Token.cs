@@ -5,7 +5,6 @@ using System.Text.Json;
 
 namespace LibCK3.Parsing
 {
-    [StructLayout(LayoutKind.Sequential)]
     [DebuggerDisplay("(ID:{ID}, Special: {IsSpecial}, Identifier: {AsIdentifier()})")]
     public readonly struct CK3Token
     {

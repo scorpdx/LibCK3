@@ -60,7 +60,7 @@ namespace LibCK3.Parsing
                         break;
                     }
 
-                    ParseSequence(result.Buffer, ref _state, objectStack, out var consumed, out var examined);
+                    ParseSequence(result.Buffer, objectStack, out var consumed, out var examined);
                     pipeReader.AdvanceTo(consumed, examined);
 
                     if (_state == ParseState.DecompressGamestate)
@@ -107,7 +107,7 @@ namespace LibCK3.Parsing
             Array
         }
 
-        private void ParseSequence(ReadOnlySequence<byte> buffer, ref ParseState state, Stack<bool> objectStack, out SequencePosition consumed, out SequencePosition examined)
+        private void ParseSequence(ReadOnlySequence<byte> buffer, Stack<bool> objectStack, out SequencePosition consumed, out SequencePosition examined)
         {
             #region Reader methods
 
@@ -116,7 +116,7 @@ namespace LibCK3.Parsing
 
             bool TryReadLPQStr(ref SequenceReader<byte> reader, bool asPropertyName = false)
             {
-                if (!reader.TryReadLittleEndian(out ushort strLen))
+                if (!reader.TryReadLittleEndian(out ushort strLen) || reader.Remaining < strLen)
                     return false;
 
                 Span<byte> str = stackalloc byte[strLen];
@@ -136,7 +136,7 @@ namespace LibCK3.Parsing
                 return true;
             }
 
-            bool TryReadValue(ref SequenceReader<byte> reader, CK3Token token, ref ParseState state)
+            bool TryReadValue(ref SequenceReader<byte> reader, CK3Token token)
             {
                 if (!token.IsSpecial)
                 {
@@ -147,7 +147,7 @@ namespace LibCK3.Parsing
                 switch (token.AsSpecial())
                 {
                     case SpecialTokens.Open:
-                        state = ParseState.Container;
+                        _state = ParseState.Container;
                         return true;
                     case SpecialTokens.Close:
                         if (objectStack.Pop())
@@ -159,9 +159,9 @@ namespace LibCK3.Parsing
                             _writer.WriteEndArray();
                         }
 
-                        if (state == ParseState.ContainerToRoot)
+                        if (_state == ParseState.ContainerToRoot)
                         {
-                            state = ParseState.DecompressGamestate;
+                            _state = ParseState.DecompressGamestate;
                         }
 
                         return true;
@@ -178,7 +178,7 @@ namespace LibCK3.Parsing
 
                             //Trim unwritten ends
                             utf8Date = utf8Date[..bytesWritten];
-                            if (state == ParseState.IdentifierKey)
+                            if (_state == ParseState.IdentifierKey)
                             {
                                 _writer.WritePropertyName(utf8Date);
                             }
@@ -189,7 +189,7 @@ namespace LibCK3.Parsing
                         }
                         else
                         {
-                            if (state == ParseState.IdentifierKey)
+                            if (_state == ParseState.IdentifierKey)
                             {
                                 Span<byte> utf8Int = stackalloc byte[11]; //-2147483648
                                 if (!Utf8Formatter.TryFormat(intValue, utf8Int, out int bytesWritten))
@@ -209,7 +209,7 @@ namespace LibCK3.Parsing
                         if (!reader.TryReadLittleEndian(out uint uintValue))
                             return false;
 
-                        if (state == ParseState.IdentifierKey)
+                        if (_state == ParseState.IdentifierKey)
                         {
                             Span<byte> utf8Uint = stackalloc byte[10]; //4294967295
                             if (!Utf8Formatter.TryFormat(uintValue, utf8Uint, out int bytesWritten))
@@ -241,7 +241,7 @@ namespace LibCK3.Parsing
                         _writer.WriteBooleanValue(boolValue);
                         return true;
                     case SpecialTokens.Double:
-                        if (!reader.TryRead(out long ck3DoubleValue))
+                        if (!reader.TryReadLittleEndian(out long ck3DoubleValue))
                             return false;
 
                         var doubleValue = ck3DoubleValue / 1000.0D;
@@ -249,7 +249,7 @@ namespace LibCK3.Parsing
                         return true;
                     case SpecialTokens.LPQStr:
                     case SpecialTokens.LPStr:
-                        return TryReadLPQStr(ref reader, state == ParseState.IdentifierKey);
+                        return TryReadLPQStr(ref reader, _state == ParseState.IdentifierKey);
                     case SpecialTokens.RGB:
                         if (!reader.TryReadToken(out var openToken) || openToken.AsSpecial() != SpecialTokens.Open)
                             return false;
@@ -383,7 +383,7 @@ namespace LibCK3.Parsing
             while (!reader.End)
             {
                 CK3Token token = default;
-                switch (state)
+                switch (_state)
                 {
                     case ParseState.Checksum:
                         if (!TryReadChecksum(ref reader, out var checksum))
@@ -393,7 +393,7 @@ namespace LibCK3.Parsing
                         }
 
                         _writer.WriteString("checksum", checksum);
-                        state = ParseState.Token;
+                        _state = ParseState.Token;
                         break;
                     case ParseState.Token:
                         if (!reader.TryReadToken(out token))
@@ -405,7 +405,7 @@ namespace LibCK3.Parsing
                         {
                             if (objectStack.TryPeek(out bool inObject) && !inObject)
                             {
-                                state = ParseState.Value;
+                                _state = ParseState.Value;
                                 goto InlineValue;
                             }
 
@@ -416,7 +416,7 @@ namespace LibCK3.Parsing
                         switch (token.AsSpecial())
                         {
                             case SpecialTokens.Equals:
-                                state = ParseState.Value;
+                                _state = ParseState.Value;
                                 break;
                             //These values can all be used as identifiers
                             case SpecialTokens.LPQStr:
@@ -425,20 +425,20 @@ namespace LibCK3.Parsing
                             case SpecialTokens.UInt:
                                 if (objectStack.Peek())
                                 {
-                                    state = ParseState.IdentifierKey;
+                                    _state = ParseState.IdentifierKey;
                                 }
                                 goto InlineValue;
                             //
                             case SpecialTokens.Close when objectStack.Count == 1:
                                 if (reader.IsNext(PKZIP_MAGIC, false))
                                 {
-                                    state = ParseState.ContainerToRoot;
+                                    _state = ParseState.ContainerToRoot;
                                 }
                                 goto InlineValue;
                             case SpecialTokens.Open:
                             case SpecialTokens.Close:
                             default:
-                                state = ParseState.Value;
+                                _state = ParseState.Value;
                                 goto InlineValue;
                         }
                         break;
@@ -453,14 +453,14 @@ namespace LibCK3.Parsing
                             return;
                         }
                     InlineValue:
-                        var initState = state;
-                        if (!TryReadValue(ref reader, token, ref state))
+                        var initState = _state;
+                        if (!TryReadValue(ref reader, token))
                         {
                             examined = buffer.End;
                             return;
                         }
 
-                        state = initState == state ? ParseState.Token : state;
+                        _state = initState == _state ? ParseState.Token : _state;
                         break;
                     case ParseState.Container:
                         if (!TryPeekContainerType(ref reader, out var containerType) || containerType == null)
@@ -482,7 +482,7 @@ namespace LibCK3.Parsing
                         }
 
                         //Debug.Indent();
-                        state = ParseState.Token;
+                        _state = ParseState.Token;
                         break;
                     case ParseState.DecompressGamestate:
                         return;
