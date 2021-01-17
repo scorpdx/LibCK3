@@ -5,7 +5,7 @@
     <AssemblyName>LibCK3.Tokens</AssemblyName>
     <RootNamespace>LibCK3.Tokens</RootNamespace>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <Version>1.0.3</Version>
+    <Version>1.1</Version>
     <Authors>jzebedee</Authors>
     <Company>scorpdx</Company>
     <Description>CK3 token support for LibCK3</Description>
