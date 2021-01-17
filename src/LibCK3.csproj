@@ -5,6 +5,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Tokens\**" />
+    <EmbeddedResource Remove="Tokens\**" />
+    <None Remove="Tokens\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="System.IO.Pipelines" Version="5.0.0" />
   </ItemGroup>
 
