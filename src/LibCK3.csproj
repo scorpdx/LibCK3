@@ -14,4 +14,8 @@
     <PackageReference Include="System.IO.Pipelines" Version="5.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="LibCK3.Tokens.csproj" />
+  </ItemGroup>
+
 </Project>

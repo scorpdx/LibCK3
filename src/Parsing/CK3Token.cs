@@ -1,4 +1,4 @@
-﻿using LibCK3.Assets.Tokens;
+﻿using LibCK3.Tokens;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
