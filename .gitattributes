@@ -57,5 +57,3 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
-*.ck3 filter=lfs diff=lfs merge=lfs -text
-*.ck3txt filter=lfs diff=lfs merge=lfs -text
