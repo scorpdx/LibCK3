@@ -1,6 +1,12 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net5.0</TargetFramework>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <Authors>jzebedee</Authors>
+    <Company>scorpdx</Company>
+    <Description>.NET 5.0 library for parsing Crusader Kings 3 game data and save games</Description>
+    <PackageProjectUrl>https://github.com/scorpdx/LibCK3</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/scorpdx/LibCK3</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
