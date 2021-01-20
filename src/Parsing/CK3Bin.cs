@@ -14,6 +14,7 @@ namespace LibCK3.Parsing
     public class CK3Bin
     {
         private const string GAMESTATE_ENTRY = "gamestate";
+        private const int CHECKSUM_LENGTH = 23; //"SAV" + checksum[20], followed by '\n' delimiter
         private static readonly byte[] PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
 
         private readonly PipeReader _readPipe;
@@ -112,7 +113,7 @@ namespace LibCK3.Parsing
             #region Reader methods
 
             bool TryReadChecksum(ref SequenceReader<byte> reader, out ReadOnlySpan<byte> line)
-                => reader.TryReadTo(out line, (byte)'\n');
+                => reader.TryReadTo(out line, (byte)'\n') && line.Length == CHECKSUM_LENGTH;
 
             bool TryReadLPQStr(ref SequenceReader<byte> reader, bool asPropertyName = false)
             {
@@ -388,6 +389,13 @@ namespace LibCK3.Parsing
                     case ParseState.Checksum:
                         if (!TryReadChecksum(ref reader, out var checksum))
                         {
+                            //if we can't find a checksum within the first CHECKSUM_LENGTH bytes, skip it
+                            if(reader.Consumed > CHECKSUM_LENGTH)
+                            {
+                                _state = ParseState.Token;
+                                return;
+                            }
+
                             examined = buffer.End;
                             return;
                         }
