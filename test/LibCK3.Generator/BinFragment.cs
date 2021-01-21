@@ -14,9 +14,12 @@ namespace LibCK3.Generator
         {
             _start = start;
         }
-        public BinFragment(ReadOnlyMemory<byte> memory) : base()
+        public BinFragment(ReadOnlyMemory<byte> memory)
         {
             Memory = memory;
+        }
+        public BinFragment()
+        {
         }
 
         public BinFragment Append(ReadOnlyMemory<byte> memory)
