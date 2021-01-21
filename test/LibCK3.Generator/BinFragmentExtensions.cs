@@ -1,4 +1,5 @@
 ﻿using LibCK3.Parsing;
+using LibCK3.Tokens;
 using System;
 using System.Buffers.Text;
 using System.Collections.Generic;
@@ -18,5 +19,11 @@ namespace LibCK3.Generator
 
         public static BinFragment Close(this BinFragment fragment)
             => fragment.Append(SpecialTokens.Close);
+
+        public static BinFragment Identifier(this BinFragment fragment, string named)
+            => fragment.Append(BitConverter.GetBytes(CK3Tokens.Tokens.Single(kvp => named == kvp.Value.ToString()).Key));
+
+        public static BinFragment Int(this BinFragment fragment, int value)
+            => fragment.Append(SpecialTokens.Int).Append(BitConverter.GetBytes(value));
     }
 }
