@@ -1,5 +1,7 @@
+using LibCK3.Generator;
 using LibCK3.Parsing;
 using System;
+using System.Buffers;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -75,6 +77,16 @@ namespace LibCK3.Tests
 
             await bin.ParseAsync();
             return flush();
+        }
+        private Task<byte[]> ParseFragment(BinFragment fragment) => ParseFragment(fragment.Build().ToArray());
+
+        [Fact]
+        public async Task ParseEmptyObject()
+        {
+            var frag = new BinFragment().Open().Close();
+            var results = await ParseFragment(frag);
+
+            Assert.Equal("{}", Encoding.UTF8.GetString(results));
         }
     }
 }
