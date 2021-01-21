@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net5.0</TargetFramework>
@@ -35,6 +35,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\LibCK3.csproj" />
+    <ProjectReference Include="..\LibCK3.Generator\LibCK3.Generator.csproj" />
   </ItemGroup>
 
 </Project>
