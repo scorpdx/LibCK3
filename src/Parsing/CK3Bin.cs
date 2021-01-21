@@ -366,10 +366,6 @@ namespace LibCK3.Parsing
                     {
                         containerType = ContainerType.Object;
                         return true;
-                        //}
-                        //else
-                        //{
-                        //    throw new InvalidOperationException("Unexpected token following idstr while peeking container type");
                     }
 
                     containerType = ContainerType.Array;
