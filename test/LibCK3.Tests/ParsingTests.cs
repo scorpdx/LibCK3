@@ -67,5 +67,14 @@ namespace LibCK3.Tests
 
             Assert.Equal(expected, results);
         }
+
+        private async Task<byte[]> ParseFragment(byte[] fragment)
+        {
+            using var msFrag = new MemoryStream(fragment);
+            var bin = new CK3Bin(msFrag, GetTestWriter(out var flush));
+
+            await bin.ParseAsync();
+            return flush();
+        }
     }
 }
