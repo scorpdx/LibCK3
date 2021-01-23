@@ -70,7 +70,7 @@ namespace LibCK3.Tests
             Assert.Equal(expected, results);
         }
 
-        private async Task<byte[]> ParseFragment(byte[] fragment)
+        private static async Task<byte[]> ParseFragment(byte[] fragment)
         {
             using var msFrag = new MemoryStream(fragment);
             var bin = new CK3Bin(msFrag, GetTestWriter(out var flush));
@@ -78,7 +78,7 @@ namespace LibCK3.Tests
             await bin.ParseAsync();
             return flush();
         }
-        private Task<byte[]> ParseFragment(BinFragment fragment) => ParseFragment(fragment.Build().ToArray());
+        private static Task<byte[]> ParseFragment(BinFragment fragment) => ParseFragment(fragment.Build().ToArray());
 
         [Fact]
         public async Task ParseEmptyObject()
