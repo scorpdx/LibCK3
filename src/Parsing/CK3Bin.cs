@@ -95,6 +95,7 @@ namespace LibCK3.Parsing
             Checksum,
             Token,
             IdentifierKey,
+            HiddenValue,
             Value,
             Container,
             ContainerToRoot,
@@ -138,6 +139,22 @@ namespace LibCK3.Parsing
 
             bool TryReadValue(ref SequenceReader<byte> reader, CK3Token token)
             {
+                bool HiddenObjectAhead(ref SequenceReader<byte> reader)
+                {
+                    if (objectStack.TryPeek(out var inObject) && !inObject
+                          && reader.TryPeek(out var eqByte) && eqByte == (byte)SpecialTokens.Equals)
+                    {
+                        //open object before writing property name
+                        //no need to set parseState, the eq will
+                        _writer.WriteStartObject();
+                        return true;
+                    }
+
+                    return false;
+                }
+
+                bool ShouldWriteIdentifier(ref SequenceReader<byte> reader) => _state == ParseState.IdentifierKey || HiddenObjectAhead(ref reader);
+
                 if (!token.IsSpecial)
                 {
                     _writer.WriteStringValue(token.AsIdentifier());
@@ -178,7 +195,7 @@ namespace LibCK3.Parsing
 
                             //Trim unwritten ends
                             utf8Date = utf8Date[..bytesWritten];
-                            if (_state == ParseState.IdentifierKey)
+                            if (ShouldWriteIdentifier(ref reader))
                             {
                                 _writer.WritePropertyName(utf8Date);
                             }
@@ -189,7 +206,7 @@ namespace LibCK3.Parsing
                         }
                         else
                         {
-                            if (_state == ParseState.IdentifierKey)
+                            if (ShouldWriteIdentifier(ref reader))
                             {
                                 Span<byte> utf8Int = stackalloc byte[11]; //-2147483648
                                 if (!Utf8Formatter.TryFormat(intValue, utf8Int, out int bytesWritten))
@@ -209,7 +226,7 @@ namespace LibCK3.Parsing
                         if (!reader.TryReadLittleEndian(out uint uintValue))
                             return false;
 
-                        if (_state == ParseState.IdentifierKey)
+                        if (ShouldWriteIdentifier(ref reader))
                         {
                             Span<byte> utf8Uint = stackalloc byte[10]; //4294967295
                             if (!Utf8Formatter.TryFormat(uintValue, utf8Uint, out int bytesWritten))
@@ -249,7 +266,7 @@ namespace LibCK3.Parsing
                         return true;
                     case SpecialTokens.LPQStr:
                     case SpecialTokens.LPStr:
-                        return TryReadLPQStr(ref reader, _state == ParseState.IdentifierKey);
+                        return TryReadLPQStr(ref reader, ShouldWriteIdentifier(ref reader));
                     case SpecialTokens.RGB:
                         if (!reader.TryReadToken(out var openToken) || openToken.AsSpecial() != SpecialTokens.Open)
                             return false;
@@ -416,7 +433,17 @@ namespace LibCK3.Parsing
                         switch (token.AsSpecial())
                         {
                             case SpecialTokens.Equals:
-                                _state = ParseState.Value;
+                                if (objectStack.TryPeek(out bool inObject) && !inObject)
+                                {
+                                    //eq inside array -- hidden object!
+                                    //create a new object to wrap it
+                                    //(TryReadValue already peeks and writes the property name)
+                                    _state = ParseState.HiddenValue;
+                                }
+                                else
+                                {
+                                    _state = ParseState.Value;
+                                }
                                 break;
                             //These values can all be used as identifiers
                             case SpecialTokens.LPQStr:
@@ -446,6 +473,8 @@ namespace LibCK3.Parsing
                     case ParseState.ContainerToRoot:
                     //needed for idstr object property names
                     case ParseState.IdentifierKey:
+                    //needed for hidden objects
+                    case ParseState.HiddenValue:
                     case ParseState.Value:
                         if (!reader.TryReadToken(out token))
                         {
@@ -458,6 +487,12 @@ namespace LibCK3.Parsing
                         {
                             examined = buffer.End;
                             return;
+                        }
+
+                        if (_state == ParseState.HiddenValue)
+                        {
+                            //clean up
+                            _writer.WriteEndObject();
                         }
 
                         _state = initState == _state ? ParseState.Token : _state;
