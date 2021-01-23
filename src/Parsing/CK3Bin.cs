@@ -42,6 +42,31 @@ namespace LibCK3.Parsing
         {
         }
 
+        private static Utf8JsonWriter GetTestWriter(out Func<byte[]> flushFunc)
+        {
+            var ms = new MemoryStream();
+            var writer = new Utf8JsonWriter(ms);
+            flushFunc = () =>
+            {
+                using (ms)
+                using (writer)
+                {
+                    writer.Flush();
+                    return ms.ToArray();
+                }
+            };
+
+            return writer;
+        }
+        public static async Task<byte[]> ParseFragment(byte[] fragment)
+        {
+            using var msFrag = new MemoryStream(fragment);
+            var bin = new CK3Bin(msFrag, GetTestWriter(out var flush), ParseState.Token);
+
+            await bin.ParseAsync();
+            return flush();
+        }
+
         public Task ParseAsync(CancellationToken token = default)
             => ReadPipeAsync(_readPipe, token);
 
@@ -386,7 +411,7 @@ namespace LibCK3.Parsing
                         if (!TryReadChecksum(ref reader, out var checksum))
                         {
                             //if we can't find a checksum within the first CHECKSUM_LENGTH bytes, skip it
-                            if(reader.Consumed > CHECKSUM_LENGTH)
+                            if (reader.Consumed > CHECKSUM_LENGTH)
                             {
                                 _state = ParseState.Token;
                                 return;
