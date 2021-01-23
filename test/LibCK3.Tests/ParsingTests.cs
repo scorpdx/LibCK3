@@ -33,6 +33,8 @@ namespace LibCK3.Tests
 
             return writer;
         }
+        private static Task<byte[]> ParseFragment(BinFragment fragment) => CK3Bin.ParseFragment(fragment.Build().ToArray());
+
 
         [Fact]
         public async Task ParseMeta()
@@ -70,23 +72,54 @@ namespace LibCK3.Tests
             Assert.Equal(expected, results);
         }
 
-        private static async Task<byte[]> ParseFragment(byte[] fragment)
+        [Fact]
+        public async Task ParseThrowsOnUnnamedEmptyObject()
         {
-            using var msFrag = new MemoryStream(fragment);
-            var bin = new CK3Bin(msFrag, GetTestWriter(out var flush));
+            var frag = new BinFragment().Open().Close();
 
-            await bin.ParseAsync();
-            return flush();
+            byte[] results;
+            await Assert.ThrowsAsync<InvalidOperationException>(async () => results = await ParseFragment(frag));
+
+            //Assert.Equal("", Encoding.UTF8.GetString(results));
         }
-        private static Task<byte[]> ParseFragment(BinFragment fragment) => ParseFragment(fragment.Build().ToArray());
 
         [Fact]
         public async Task ParseEmptyObject()
         {
-            var frag = new BinFragment().Open().Close();
+            var frag = new BinFragment().Identifier("meta_data").Eq().Open().Close();
             var results = await ParseFragment(frag);
 
-            Assert.Equal("{}", Encoding.UTF8.GetString(results));
+            Assert.Equal("{\"meta_data\":{}}", Encoding.UTF8.GetString(results));
+        }
+
+        [Fact]
+        public async Task ParseIdentifierIntPair()
+        {
+            var frag = new BinFragment().Identifier("save_game_version").Eq().Int(3);
+            var results = await ParseFragment(frag);
+
+            var str = Encoding.UTF8.GetString(results);
+
+            Assert.Equal("{\"save_game_version\":3}", str);
+        }
+
+        [Fact]
+        public async Task ParseHiddenObject()
+        {
+            var frag = new BinFragment()
+                .Identifier("levels")
+                .Eq()
+                .Open()
+                    .Int(1)
+                    .Int(2)
+                    .Int(3).Eq().Int(4)
+                    .Int(5)
+                .Close();
+            var results = await ParseFragment(frag);
+
+            var str = Encoding.UTF8.GetString(results);
+
+            Assert.Equal("{\"levels\":[1,2,{\"3\":4},5]}", str);
         }
     }
 }
