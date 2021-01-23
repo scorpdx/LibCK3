@@ -2,6 +2,7 @@
 using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipelines;
 using System.Text;
@@ -16,6 +17,26 @@ namespace LibCK3.Parsing
         private const string GAMESTATE_ENTRY = "gamestate";
         private const int CHECKSUM_LENGTH = 23; //"SAV" + checksum[20], followed by '\n' delimiter
         private static readonly byte[] PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
+        private static readonly byte[] EQUAL_BYTES = BitConverter.GetBytes((ushort)SpecialTokens.Equals);
+
+        private enum ParseState
+        {
+            Checksum,
+            Token,
+            IdentifierKey,
+            HiddenValue,
+            Value,
+            Container,
+            ContainerToRoot,
+            DecompressGamestate
+        }
+
+        private enum ContainerType
+        {
+            Object,
+            Array,
+            HiddenObject
+        }
 
         private readonly PipeReader _readPipe;
         private readonly Stream _stream;
@@ -74,7 +95,7 @@ namespace LibCK3.Parsing
         {
             _writer.WriteStartObject();
 
-            var objectStack = new Stack<bool>();
+            var containerStack = new Stack<ContainerType>();
 
             try
             {
@@ -86,7 +107,7 @@ namespace LibCK3.Parsing
                         break;
                     }
 
-                    ParseSequence(result.Buffer, objectStack, out var consumed, out var examined);
+                    ParseSequence(result.Buffer, containerStack, out var consumed, out var examined);
                     pipeReader.AdvanceTo(consumed, examined);
 
                     if (_state == ParseState.DecompressGamestate)
@@ -116,25 +137,7 @@ namespace LibCK3.Parsing
             _writer.WriteEndObject();
         }
 
-        private enum ParseState
-        {
-            Checksum,
-            Token,
-            IdentifierKey,
-            HiddenValue,
-            Value,
-            Container,
-            ContainerToRoot,
-            DecompressGamestate
-        }
-
-        private enum ContainerType
-        {
-            Object,
-            Array
-        }
-
-        private void ParseSequence(ReadOnlySequence<byte> buffer, Stack<bool> objectStack, out SequencePosition consumed, out SequencePosition examined)
+        private void ParseSequence(ReadOnlySequence<byte> buffer, Stack<ContainerType> containerStack, out SequencePosition consumed, out SequencePosition examined)
         {
             #region Reader methods
 
@@ -167,12 +170,12 @@ namespace LibCK3.Parsing
             {
                 bool HiddenObjectAhead(ref SequenceReader<byte> reader)
                 {
-                    if (objectStack.TryPeek(out var inObject) && !inObject
-                          && reader.TryPeek(out var eqByte) && eqByte == (byte)SpecialTokens.Equals)
+                    if (containerStack.TryPeek(out var inObject) && inObject == ContainerType.Array && reader.IsNext(EQUAL_BYTES))
                     {
                         //open object before writing property name
                         //no need to set parseState, the eq will
                         _writer.WriteStartObject();
+                        containerStack.Push(ContainerType.HiddenObject);
                         return true;
                     }
 
@@ -193,13 +196,15 @@ namespace LibCK3.Parsing
                         _state = ParseState.Container;
                         return true;
                     case SpecialTokens.Close:
-                        if (objectStack.Pop())
+                        switch(containerStack.Pop())
                         {
-                            _writer.WriteEndObject();
-                        }
-                        else
-                        {
-                            _writer.WriteEndArray();
+                            case ContainerType.Object:
+                                _writer.WriteEndObject();
+                                break;
+                            case ContainerType.Array:
+                                _writer.WriteEndArray();
+                                break;
+                            default: throw new InvalidOperationException("Unexpected container type in stack during close");
                         }
 
                         if (_state == ParseState.ContainerToRoot)
@@ -292,7 +297,8 @@ namespace LibCK3.Parsing
                         return true;
                     case SpecialTokens.LPQStr:
                     case SpecialTokens.LPStr:
-                        return TryReadLPQStr(ref reader, ShouldWriteIdentifier(ref reader));
+                        //No hidden value peeking supported, must come after value read
+                        return TryReadLPQStr(ref reader, _state == ParseState.IdentifierKey);
                     case SpecialTokens.RGB:
                         if (!reader.TryReadToken(out var openToken) || openToken.AsSpecial() != SpecialTokens.Open)
                             return false;
@@ -449,7 +455,7 @@ namespace LibCK3.Parsing
                         }
                         else if (!token.IsSpecial)
                         {
-                            if (objectStack.TryPeek(out bool inObject) && !inObject)
+                            if (containerStack.TryPeek(out var container) && container == ContainerType.Array)
                             {
                                 _state = ParseState.Value;
                                 goto InlineValue;
@@ -462,7 +468,7 @@ namespace LibCK3.Parsing
                         switch (token.AsSpecial())
                         {
                             case SpecialTokens.Equals:
-                                if (objectStack.TryPeek(out bool inObject) && !inObject)
+                                if (containerStack.TryPeek(out var container) && container == ContainerType.HiddenObject)
                                 {
                                     //eq inside array -- hidden object!
                                     //create a new object to wrap it
@@ -479,13 +485,13 @@ namespace LibCK3.Parsing
                             case SpecialTokens.LPStr:
                             case SpecialTokens.Int:
                             case SpecialTokens.UInt:
-                                if (objectStack.Peek())
+                                if (containerStack.Peek() == ContainerType.Object)
                                 {
                                     _state = ParseState.IdentifierKey;
                                 }
                                 goto InlineValue;
                             //
-                            case SpecialTokens.Close when objectStack.Count == 1:
+                            case SpecialTokens.Close when containerStack.Count == 1:
                                 if (reader.IsNext(PKZIP_MAGIC, false))
                                 {
                                     _state = ParseState.ContainerToRoot;
@@ -521,6 +527,7 @@ namespace LibCK3.Parsing
                         if (_state == ParseState.HiddenValue)
                         {
                             //clean up
+                            containerStack.Pop();
                             _writer.WriteEndObject();
                         }
 
@@ -537,11 +544,11 @@ namespace LibCK3.Parsing
                         {
                             case ContainerType.Object:
                                 _writer.WriteStartObject();
-                                objectStack.Push(true);
+                                containerStack.Push(ContainerType.Object);
                                 break;
                             case ContainerType.Array:
                                 _writer.WriteStartArray();
-                                objectStack.Push(false);
+                                containerStack.Push(ContainerType.Array);
                                 break;
                         }
 
