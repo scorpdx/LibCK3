@@ -14,6 +14,7 @@ namespace LibCK3.Parsing
     public class CK3Bin
     {
         private const string GAMESTATE_ENTRY = "gamestate";
+        private const int CHECKSUM_LENGTH = 23; //"SAV" + checksum[20], followed by '\n' delimiter
         private static readonly byte[] PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
 
         private readonly PipeReader _readPipe;
@@ -39,6 +40,31 @@ namespace LibCK3.Parsing
         public CK3Bin(string path, Utf8JsonWriter writer, bool parseGamestate = true)
             : this(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite), writer, parseGamestate)
         {
+        }
+
+        private static Utf8JsonWriter GetTestWriter(out Func<byte[]> flushFunc)
+        {
+            var ms = new MemoryStream();
+            var writer = new Utf8JsonWriter(ms);
+            flushFunc = () =>
+            {
+                using (ms)
+                using (writer)
+                {
+                    writer.Flush();
+                    return ms.ToArray();
+                }
+            };
+
+            return writer;
+        }
+        public static async Task<byte[]> ParseFragment(byte[] fragment)
+        {
+            using var msFrag = new MemoryStream(fragment);
+            var bin = new CK3Bin(msFrag, GetTestWriter(out var flush), ParseState.Token);
+
+            await bin.ParseAsync();
+            return flush();
         }
 
         public Task ParseAsync(CancellationToken token = default)
@@ -112,7 +138,7 @@ namespace LibCK3.Parsing
             #region Reader methods
 
             bool TryReadChecksum(ref SequenceReader<byte> reader, out ReadOnlySpan<byte> line)
-                => reader.TryReadTo(out line, (byte)'\n');
+                => reader.TryReadTo(out line, (byte)'\n') && line.Length == CHECKSUM_LENGTH;
 
             bool TryReadLPQStr(ref SequenceReader<byte> reader, bool asPropertyName = false)
             {
@@ -365,10 +391,6 @@ namespace LibCK3.Parsing
                     {
                         containerType = ContainerType.Object;
                         return true;
-                        //}
-                        //else
-                        //{
-                        //    throw new InvalidOperationException("Unexpected token following idstr while peeking container type");
                     }
 
                     containerType = ContainerType.Array;
@@ -388,6 +410,13 @@ namespace LibCK3.Parsing
                     case ParseState.Checksum:
                         if (!TryReadChecksum(ref reader, out var checksum))
                         {
+                            //if we can't find a checksum within the first CHECKSUM_LENGTH bytes, skip it
+                            if (reader.Consumed > CHECKSUM_LENGTH)
+                            {
+                                _state = ParseState.Token;
+                                return;
+                            }
+
                             examined = buffer.End;
                             return;
                         }
