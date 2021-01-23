@@ -16,6 +16,7 @@ namespace LibCK3.Parsing
         private const string GAMESTATE_ENTRY = "gamestate";
         private const int CHECKSUM_LENGTH = 23; //"SAV" + checksum[20], followed by '\n' delimiter
         private static readonly byte[] PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
+        private static readonly byte[] EQUAL_BYTES = BitConverter.GetBytes((ushort)SpecialTokens.Equals);
 
         private readonly PipeReader _readPipe;
         private readonly Stream _stream;
@@ -167,8 +168,7 @@ namespace LibCK3.Parsing
             {
                 bool HiddenObjectAhead(ref SequenceReader<byte> reader)
                 {
-                    if (objectStack.TryPeek(out var inObject) && !inObject
-                          && reader.TryPeek(out var eqByte) && eqByte == (byte)SpecialTokens.Equals)
+                    if (objectStack.TryPeek(out var inObject) && !inObject && reader.IsNext(EQUAL_BYTES))
                     {
                         //open object before writing property name
                         //no need to set parseState, the eq will
