@@ -20,6 +20,9 @@ namespace LibCK3.Generator
         public static BinFragment Close(this BinFragment fragment)
             => fragment.Append(SpecialTokens.Close);
 
+        public static BinFragment Eq(this BinFragment fragment)
+            => fragment.Append(SpecialTokens.Equals);
+
         public static BinFragment Identifier(this BinFragment fragment, string named)
             => fragment.Append(BitConverter.GetBytes(CK3Tokens.Tokens.Single(kvp => named == kvp.Value.ToString()).Key));
 
