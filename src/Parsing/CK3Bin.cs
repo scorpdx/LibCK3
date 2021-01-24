@@ -37,22 +37,18 @@ namespace LibCK3.Parsing
         }
 
         private readonly PipeReader _readPipe;
-        private readonly Stream _stream;
-
         private readonly Utf8JsonWriter _writer;
 
         private readonly bool _parseGamestate;
 
         private ParseState _state;
 
-        private CK3Bin(Stream stream, Utf8JsonWriter writer, ParseState state)
+        private CK3Bin(PipeReader readPipe, Utf8JsonWriter writer, ParseState state)
         {
-            _stream = stream;
             _writer = writer;
-            _readPipe = PipeReader.Create(stream);
             _state = state;
         }
-        public CK3Bin(Stream stream, Utf8JsonWriter writer, bool parseGamestate = true) : this(stream, writer, state: ParseState.Checksum)
+        public CK3Bin(Stream stream, Utf8JsonWriter writer, bool parseGamestate = true) : this(PipeReader.Create(stream), writer, state: ParseState.Checksum)
         {
             _parseGamestate = parseGamestate;
         }
@@ -80,7 +76,7 @@ namespace LibCK3.Parsing
         public static async Task<byte[]> ParseFragment(byte[] fragment)
         {
             using var msFrag = new MemoryStream(fragment);
-            var bin = new CK3Bin(msFrag, GetTestWriter(out var flush), ParseState.Token);
+            var bin = new CK3Bin(PipeReader.Create(msFrag), GetTestWriter(out var flush), ParseState.Token);
 
             await bin.ParseAsync();
             return flush();
@@ -115,14 +111,16 @@ namespace LibCK3.Parsing
                             break;
                         }
 
-                        await using var pipeStream = pipeReader.AsStream(true);
-                        using var zip = new System.IO.Compression.ZipArchive(pipeStream, System.IO.Compression.ZipArchiveMode.Read, true, Encoding.UTF8);
+                        var gamestatePipe = new Pipe();
+                        var cgreader = new CompressedGamestateReader(pipeReader, gamestatePipe.Writer);
+                        
+                        var decompressTask = cgreader.ParseAsync(cancelToken);
+                        _writer.WritePropertyName(CompressedGamestateReader.GAMESTATE);
 
-                        await using var gamestateStream = zip.GetEntry(GAMESTATE_ENTRY).Open();
-                        _writer.WritePropertyName(GAMESTATE_ENTRY);
+                        var gamestateBin = new CK3Bin(gamestatePipe.Reader, _writer, ParseState.Token);
+                        var parseGamestateTask = gamestateBin.ParseAsync(cancelToken);
 
-                        var gamestateBin = new CK3Bin(gamestateStream, _writer, ParseState.Token);
-                        await gamestateBin.ParseAsync(cancelToken);
+                        await Task.WhenAll(decompressTask, parseGamestateTask);
                     }
                 }
                 cancelToken.ThrowIfCancellationRequested();

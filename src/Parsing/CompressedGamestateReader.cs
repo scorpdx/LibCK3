@@ -13,10 +13,10 @@ namespace LibCK3.Parsing
 {
     public class CompressedGamestateReader
     {
-        private const string GAMESTATE_ENTRY = "gamestate";
+        internal const string GAMESTATE_ENTRY = "gamestate";
         private const uint PKZIP_MAGIC_UINT = 0x04034b50;
 
-        private static readonly byte[] GAMESTATE = Encoding.UTF8.GetBytes(GAMESTATE_ENTRY);
+        internal static readonly byte[] GAMESTATE = Encoding.UTF8.GetBytes(GAMESTATE_ENTRY);
 
         private readonly PipeReader _zipReader;
         private readonly PipeWriter _binWriter;
