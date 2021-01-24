@@ -7,11 +7,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="assets\gamestate.zip" />
     <None Remove="assets\meta_header.ck3" />
     <None Remove="assets\meta_header.json" />
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="assets\gamestate.zip">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="assets\meta_header.ck3">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

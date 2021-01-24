@@ -15,12 +15,13 @@ namespace LibCK3.Tests
     {
         private const string META_PATH = "assets/meta_header.ck3";
         private const string META_JSON_PATH = "assets/meta_header.json";
+        private const string GAMESTATE_ZIP_PATH = "assets/gamestate.zip";
         private const int CHECKSUM_LENGTH = 24;
 
         private static Utf8JsonWriter GetTestWriter(out Func<byte[]> flushFunc)
         {
             var ms = new MemoryStream();
-            var writer = new Utf8JsonWriter(ms);
+            var writer = new Utf8JsonWriter(ms/*, new JsonWriterOptions() { Indented = true }*/);
             flushFunc = () =>
             {
                 using (ms)
@@ -120,6 +121,19 @@ namespace LibCK3.Tests
             var str = Encoding.UTF8.GetString(results);
 
             Assert.Equal("{\"levels\":[1,2,{\"3\":4},5]}", str);
+        }
+
+        [Fact]
+        public async Task UnzipGamestate()
+        {
+            using var zipArchive = System.IO.Compression.ZipFile.OpenRead(GAMESTATE_ZIP_PATH);
+            var zipEntry = zipArchive.GetEntry("gamestate");
+            await using var gamestateStream = zipEntry.Open();
+            await using var ms = new MemoryStream();
+
+            await gamestateStream.CopyToAsync(ms);
+
+            Assert.Equal(zipEntry.Length, ms.Length);
         }
     }
 }
