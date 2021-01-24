@@ -45,6 +45,7 @@ namespace LibCK3.Parsing
 
         private CK3Bin(PipeReader readPipe, Utf8JsonWriter writer, ParseState state)
         {
+            _readPipe = readPipe;
             _writer = writer;
             _state = state;
         }
@@ -96,7 +97,7 @@ namespace LibCK3.Parsing
                 while (!cancelToken.IsCancellationRequested)
                 {
                     var result = await pipeReader.ReadAsync(cancelToken);
-                    if (result.IsCanceled || result.IsCompleted)
+                    if (result.IsCanceled || (result.IsCompleted && result.Buffer.IsEmpty))
                     {
                         break;
                     }
@@ -111,16 +112,18 @@ namespace LibCK3.Parsing
                             break;
                         }
 
+                        _writer.WritePropertyName(CompressedGamestateReader.GAMESTATE);
+
                         var gamestatePipe = new Pipe();
                         var cgreader = new CompressedGamestateReader(pipeReader, gamestatePipe.Writer);
                         
                         var decompressTask = cgreader.ParseAsync(cancelToken);
-                        _writer.WritePropertyName(CompressedGamestateReader.GAMESTATE);
 
                         var gamestateBin = new CK3Bin(gamestatePipe.Reader, _writer, ParseState.Token);
                         var parseGamestateTask = gamestateBin.ParseAsync(cancelToken);
 
                         await Task.WhenAll(decompressTask, parseGamestateTask);
+                        break;
                     }
                 }
                 cancelToken.ThrowIfCancellationRequested();
