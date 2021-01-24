@@ -135,5 +135,11 @@ namespace LibCK3.Tests
 
             Assert.Equal(zipEntry.Length, ms.Length);
         }
+
+        [Fact]
+        public async Task UnzipGamestateBlind()
+        {
+            throw new NotImplementedException();
+        }
     }
 }
