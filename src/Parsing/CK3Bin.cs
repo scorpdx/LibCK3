@@ -2,7 +2,6 @@
 using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.IO.Pipelines;
 using System.Text;
@@ -14,7 +13,6 @@ namespace LibCK3.Parsing
 {
     public class CK3Bin
     {
-        private const string GAMESTATE_ENTRY = "gamestate";
         private const int CHECKSUM_LENGTH = 23; //"SAV" + checksum[20], followed by '\n' delimiter
         private static readonly byte[] PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
         private static readonly byte[] EQUAL_BYTES = BitConverter.GetBytes((ushort)SpecialTokens.Equals);
@@ -196,7 +194,7 @@ namespace LibCK3.Parsing
                         _state = ParseState.Container;
                         return true;
                     case SpecialTokens.Close:
-                        switch(containerStack.Pop())
+                        switch (containerStack.Pop())
                         {
                             case ContainerType.Object:
                                 _writer.WriteEndObject();
