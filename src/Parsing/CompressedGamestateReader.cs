@@ -13,7 +13,10 @@ namespace LibCK3.Parsing
 {
     public class CompressedGamestateReader
     {
-        private static readonly byte[] GAMESTATE = Encoding.UTF8.GetBytes(CK3Bin.GAMESTATE_ENTRY);
+        private const string GAMESTATE_ENTRY = "gamestate";
+        private const uint PKZIP_MAGIC_UINT = 0x04034b50;
+
+        private static readonly byte[] GAMESTATE = Encoding.UTF8.GetBytes(GAMESTATE_ENTRY);
 
         private readonly PipeReader _zipReader;
         private readonly PipeWriter _binWriter;
@@ -113,12 +116,15 @@ namespace LibCK3.Parsing
             var reader = new SequenceReader<byte>(buffer);
 
             //sig
-            if (!reader.IsNext(CK3Bin.PKZIP_MAGIC) || !reader.TryRead<LocalZipHeader>(out var header))
+            if (!reader.TryRead<LocalZipHeader>(out var header))
             {
                 fileInfo = default;
                 consumed = buffer.Start;
                 return false;
             }
+
+            if (header.Signature != PKZIP_MAGIC_UINT)
+                throw new InvalidOperationException("Invalid signature");
 
             //filename
             if (header.FilenameLength > 256)
