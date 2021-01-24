@@ -15,6 +15,7 @@ namespace LibCK3.Tests
 {
     public class ParsingTests
     {
+        private const string SAVE_PATH = "assets/save.ck3";
         private const string META_PATH = "assets/meta_header.ck3";
         private const string META_JSON_PATH = "assets/meta_header.json";
         private const string GAMESTATE_ZIP_PATH = "assets/gamestate.zip";
@@ -38,6 +39,16 @@ namespace LibCK3.Tests
         }
         private static Task<byte[]> ParseFragment(BinFragment fragment) => CK3Bin.ParseFragment(fragment.Build().ToArray());
 
+
+        [Fact]
+        public async Task ParseFullSave()
+        {
+            var bin = new CK3Bin(SAVE_PATH, GetTestWriter(out var flush));
+            await bin.ParseAsync();
+
+            var results = flush();
+            Assert.NotEmpty(results);
+        }
 
         [Fact]
         public async Task ParseMeta()
