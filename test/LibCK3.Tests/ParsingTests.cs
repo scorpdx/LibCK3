@@ -3,6 +3,8 @@ using LibCK3.Parsing;
 using System;
 using System.Buffers;
 using System.IO;
+using System.IO.Compression;
+using System.IO.Pipelines;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -126,7 +128,7 @@ namespace LibCK3.Tests
         [Fact]
         public async Task UnzipGamestate()
         {
-            using var zipArchive = System.IO.Compression.ZipFile.OpenRead(GAMESTATE_ZIP_PATH);
+            using var zipArchive = ZipFile.OpenRead(GAMESTATE_ZIP_PATH);
             var zipEntry = zipArchive.GetEntry("gamestate");
             await using var gamestateStream = zipEntry.Open();
             await using var ms = new MemoryStream();
@@ -139,7 +141,16 @@ namespace LibCK3.Tests
         [Fact]
         public async Task UnzipGamestateBlind()
         {
-            throw new NotImplementedException();
+            using var gamestateZipStream = File.OpenRead(GAMESTATE_ZIP_PATH);
+            using var binStream = new MemoryStream();
+            var reader = PipeReader.Create(gamestateZipStream);
+            var writer = PipeWriter.Create(binStream, new StreamPipeWriterOptions(leaveOpen: true));
+
+            var blindzip = new CompressedGamestateReader(reader, writer);
+            var (compressedSize, uncompressedSize, crc32) = await blindzip.ParseAsync();
+
+            Assert.Equal(uncompressedSize, binStream.Length);
+            Assert.Equal(crc32, Crc32.ComputeChecksum(binStream.ToArray()));
         }
     }
 }
