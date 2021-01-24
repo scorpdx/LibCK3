@@ -136,6 +136,7 @@ namespace LibCK3.Tests
             await gamestateStream.CopyToAsync(ms);
 
             Assert.Equal(zipEntry.Length, ms.Length);
+            Assert.Equal(zipEntry.Crc32, Crc32.ComputeChecksum(ms.ToArray()));
         }
 
         [Fact]
