@@ -116,7 +116,7 @@ namespace LibCK3.Parsing
 
                         var gamestatePipe = new Pipe();
                         var cgreader = new CompressedGamestateReader(pipeReader, gamestatePipe.Writer);
-                        
+
                         var decompressTask = cgreader.ParseAsync(cancelToken);
 
                         var gamestateBin = new CK3Bin(gamestatePipe.Reader, _writer, ParseState.Token);
@@ -206,7 +206,7 @@ namespace LibCK3.Parsing
                             default: throw new InvalidOperationException("Unexpected container type in stack during close");
                         }
 
-                        if (_state == ParseState.ContainerToRoot)
+                        if (_state == ParseState.ContainerToRoot && reader.IsNext(PKZIP_MAGIC, false))
                         {
                             _state = ParseState.DecompressGamestate;
                         }
@@ -491,10 +491,7 @@ namespace LibCK3.Parsing
                                 goto InlineValue;
                             //
                             case SpecialTokens.Close when containerStack.Count == 1:
-                                if (reader.IsNext(PKZIP_MAGIC, false))
-                                {
-                                    _state = ParseState.ContainerToRoot;
-                                }
+                                _state = ParseState.ContainerToRoot;
                                 goto InlineValue;
                             case SpecialTokens.Open:
                             case SpecialTokens.Close:
