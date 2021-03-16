@@ -37,7 +37,7 @@ namespace LibCK3.Tests
 
             return writer;
         }
-        private static Task<byte[]> ParseFragment(BinFragment fragment) => CK3Bin.ParseFragment(fragment.Build().ToArray());
+        private static Task<byte[]> ParseFragment(BinFragment fragment) => CK3Bin.ParseFragmentAsync(fragment.Build().ToArray());
 
 
         [Fact]
