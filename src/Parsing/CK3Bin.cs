@@ -4,7 +4,6 @@ using System.Buffers.Text;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipelines;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -74,7 +73,7 @@ namespace LibCK3.Parsing
 
             return writer;
         }
-        public static async Task<byte[]> ParseFragment(byte[] fragment)
+        public static async Task<byte[]> ParseFragmentAsync(byte[] fragment)
         {
             using var msFrag = new MemoryStream(fragment);
             var bin = new CK3Bin(PipeReader.Create(msFrag), GetTestWriter(out var flush), ParseState.Token);
@@ -138,6 +137,146 @@ namespace LibCK3.Parsing
 
         private void ParseSequence(ReadOnlySequence<byte> buffer, Stack<ContainerType> containerStack, out SequencePosition consumed, out SequencePosition examined)
         {
+            var reader = new SequenceReader<byte>(buffer);
+            consumed = buffer.Start;
+            examined = consumed;
+            while (!reader.End)
+            {
+                CK3Token token = default;
+                switch (_state)
+                {
+                    case ParseState.Checksum:
+                        if (!TryReadChecksum(ref reader, out var checksum))
+                        {
+                            //if we can't find a checksum within the first CHECKSUM_LENGTH bytes, skip it
+                            if (reader.Consumed > CHECKSUM_LENGTH)
+                            {
+                                _state = ParseState.Token;
+                                return;
+                            }
+
+                            examined = buffer.End;
+                            return;
+                        }
+
+                        _writer.WriteString("checksum", checksum);
+                        _state = ParseState.Token;
+                        break;
+                    case ParseState.Token:
+                        if (!reader.TryReadToken(out token))
+                        {
+                            examined = buffer.End;
+                            return;
+                        }
+                        else if (!token.IsSpecial)
+                        {
+                            if (containerStack.TryPeek(out var container) && container == ContainerType.Array)
+                            {
+                                _state = ParseState.Value;
+                                goto InlineValue;
+                            }
+
+                            _writer.WritePropertyName(token.AsIdentifier());
+                            break;
+                        }
+
+                        switch (token.AsSpecial())
+                        {
+                            case SpecialTokens.Equals:
+                                if (containerStack.TryPeek(out var container) && container == ContainerType.HiddenObject)
+                                {
+                                    //eq inside array -- hidden object!
+                                    //create a new object to wrap it
+                                    //(TryReadValue already peeks and writes the property name)
+                                    _state = ParseState.HiddenValue;
+                                }
+                                else
+                                {
+                                    _state = ParseState.Value;
+                                }
+                                break;
+                            //These values can all be used as identifiers
+                            case SpecialTokens.LPQStr:
+                            case SpecialTokens.LPStr:
+                            case SpecialTokens.Int:
+                            case SpecialTokens.UInt:
+                                if (containerStack.Peek() == ContainerType.Object)
+                                {
+                                    _state = ParseState.IdentifierKey;
+                                }
+                                goto InlineValue;
+                            //
+                            case SpecialTokens.Close when containerStack.Count == 1:
+                                _state = ParseState.ContainerToRoot;
+                                goto InlineValue;
+                            case SpecialTokens.Open:
+                            case SpecialTokens.Close:
+                            default:
+                                _state = ParseState.Value;
+                                goto InlineValue;
+                        }
+                        break;
+                    //needed to finish writing container end
+                    case ParseState.ContainerToRoot:
+                    //needed for idstr object property names
+                    case ParseState.IdentifierKey:
+                    //needed for hidden objects
+                    case ParseState.HiddenValue:
+                    case ParseState.Value:
+                        if (!reader.TryReadToken(out token))
+                        {
+                            examined = buffer.End;
+                            return;
+                        }
+                    InlineValue:
+                        var initState = _state;
+                        if (!TryReadValue(ref reader, token))
+                        {
+                            examined = buffer.End;
+                            return;
+                        }
+
+                        if (_state == ParseState.HiddenValue)
+                        {
+                            //clean up
+                            containerStack.Pop();
+                            _writer.WriteEndObject();
+                        }
+
+                        _state = initState == _state ? ParseState.Token : _state;
+                        break;
+                    case ParseState.Container:
+                        if (!TryPeekContainerType(reader, out var containerType) || containerType == null)
+                        {
+                            examined = buffer.End;
+                            return;
+                        }
+
+                        switch (containerType.Value)
+                        {
+                            case ContainerType.Object:
+                                _writer.WriteStartObject();
+                                containerStack.Push(ContainerType.Object);
+                                break;
+                            case ContainerType.Array:
+                                _writer.WriteStartArray();
+                                containerStack.Push(ContainerType.Array);
+                                break;
+                        }
+
+                        //Debug.Indent();
+                        _state = ParseState.Token;
+                        break;
+                    case ParseState.DecompressGamestate:
+                        return;
+                }
+
+                consumed = reader.Position;
+                examined = consumed;
+            }
+
+            //
+
             #region Reader methods
 
             bool TryReadChecksum(ref SequenceReader<byte> reader, out ReadOnlySpan<byte> line)
@@ -335,9 +474,8 @@ namespace LibCK3.Parsing
                 }
             }
 
-            bool TryPeekContainerType(ref SequenceReader<byte> reader, out ContainerType? containerType)
+            bool TryPeekContainerType(SequenceReader<byte> copy, out ContainerType? containerType)
             {
-                var copy = reader;
                 if (!copy.TryReadToken(out var firstToken))
                 {
                     containerType = default;
@@ -420,144 +558,6 @@ namespace LibCK3.Parsing
                 }
             }
             #endregion
-
-            var reader = new SequenceReader<byte>(buffer);
-            consumed = buffer.Start;
-            examined = consumed;
-            while (!reader.End)
-            {
-                CK3Token token = default;
-                switch (_state)
-                {
-                    case ParseState.Checksum:
-                        if (!TryReadChecksum(ref reader, out var checksum))
-                        {
-                            //if we can't find a checksum within the first CHECKSUM_LENGTH bytes, skip it
-                            if (reader.Consumed > CHECKSUM_LENGTH)
-                            {
-                                _state = ParseState.Token;
-                                return;
-                            }
-
-                            examined = buffer.End;
-                            return;
-                        }
-
-                        _writer.WriteString("checksum", checksum);
-                        _state = ParseState.Token;
-                        break;
-                    case ParseState.Token:
-                        if (!reader.TryReadToken(out token))
-                        {
-                            examined = buffer.End;
-                            return;
-                        }
-                        else if (!token.IsSpecial)
-                        {
-                            if (containerStack.TryPeek(out var container) && container == ContainerType.Array)
-                            {
-                                _state = ParseState.Value;
-                                goto InlineValue;
-                            }
-
-                            _writer.WritePropertyName(token.AsIdentifier());
-                            break;
-                        }
-
-                        switch (token.AsSpecial())
-                        {
-                            case SpecialTokens.Equals:
-                                if (containerStack.TryPeek(out var container) && container == ContainerType.HiddenObject)
-                                {
-                                    //eq inside array -- hidden object!
-                                    //create a new object to wrap it
-                                    //(TryReadValue already peeks and writes the property name)
-                                    _state = ParseState.HiddenValue;
-                                }
-                                else
-                                {
-                                    _state = ParseState.Value;
-                                }
-                                break;
-                            //These values can all be used as identifiers
-                            case SpecialTokens.LPQStr:
-                            case SpecialTokens.LPStr:
-                            case SpecialTokens.Int:
-                            case SpecialTokens.UInt:
-                                if (containerStack.Peek() == ContainerType.Object)
-                                {
-                                    _state = ParseState.IdentifierKey;
-                                }
-                                goto InlineValue;
-                            //
-                            case SpecialTokens.Close when containerStack.Count == 1:
-                                _state = ParseState.ContainerToRoot;
-                                goto InlineValue;
-                            case SpecialTokens.Open:
-                            case SpecialTokens.Close:
-                            default:
-                                _state = ParseState.Value;
-                                goto InlineValue;
-                        }
-                        break;
-                    //needed to finish writing container end
-                    case ParseState.ContainerToRoot:
-                    //needed for idstr object property names
-                    case ParseState.IdentifierKey:
-                    //needed for hidden objects
-                    case ParseState.HiddenValue:
-                    case ParseState.Value:
-                        if (!reader.TryReadToken(out token))
-                        {
-                            examined = buffer.End;
-                            return;
-                        }
-                    InlineValue:
-                        var initState = _state;
-                        if (!TryReadValue(ref reader, token))
-                        {
-                            examined = buffer.End;
-                            return;
-                        }
-
-                        if (_state == ParseState.HiddenValue)
-                        {
-                            //clean up
-                            containerStack.Pop();
-                            _writer.WriteEndObject();
-                        }
-
-                        _state = initState == _state ? ParseState.Token : _state;
-                        break;
-                    case ParseState.Container:
-                        if (!TryPeekContainerType(ref reader, out var containerType) || containerType == null)
-                        {
-                            examined = buffer.End;
-                            return;
-                        }
-
-                        switch (containerType.Value)
-                        {
-                            case ContainerType.Object:
-                                _writer.WriteStartObject();
-                                containerStack.Push(ContainerType.Object);
-                                break;
-                            case ContainerType.Array:
-                                _writer.WriteStartArray();
-                                containerStack.Push(ContainerType.Array);
-                                break;
-                        }
-
-                        //Debug.Indent();
-                        _state = ParseState.Token;
-                        break;
-                    case ParseState.DecompressGamestate:
-                        return;
-                }
-
-                consumed = reader.Position;
-                examined = consumed;
-            }
         }
     }
 }
