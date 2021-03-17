@@ -1,0 +1,21 @@
+name: Upload dotnet package
+on:
+  release:
+    types: [created]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: '5.0.x' # SDK Version to use.
+        source-url: https://nuget.pkg.github.com/<owner>/index.json
+      env:
+        NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Pack
+      run: dotnet pack --output pkg
+    - name: Publish the package to GPR
+      run: dotnet nuget push pkg/*.nupkg --skip-duplicate
+    - name: Publish the package to NuGet
+      run: dotnet nuget push pkg/*.nupkg -k {{ secrets.LIBCK3_NUGET_TOKEN }} -s https://api.nuget.org/v3/index.json
