@@ -21,8 +21,8 @@ jobs:
     - name: Build
       run: dotnet build --configuration Release --no-restore
     - name: Test
-      run: dotnet test --no-restore --logger trx --results-directory "TestResults-${{ matrix.dotnet-version }}"
-    - name: Upload dotnet test results
+      run: dotnet test --no-restore --no-build --logger trx --results-directory "TestResults-${{ matrix.dotnet-version }}"
+    - name: Upload test results
       uses: actions/upload-artifact@v2
       with:
           name: dotnet-results-${{ matrix.dotnet-version }}
@@ -31,3 +31,8 @@ jobs:
       if: ${{ always() }}
     - name: Pack
       run: dotnet pack --no-restore --no-build --output pkg
+    - name: Upload package
+      uses: actions/upload-artifact@v2
+      with:
+          name: LibCK3-pkg
+          path: pkg/*.*
