@@ -1,4 +1,4 @@
-name: Upload dotnet package
+name: Upload packages to feeds
 on:
   release:
     types: [created]
