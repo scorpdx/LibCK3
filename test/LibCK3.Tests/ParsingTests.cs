@@ -3,7 +3,6 @@ using LibCK3.Parsing;
 using System;
 using System.Buffers;
 using System.IO;
-using System.IO.Compression;
 using System.IO.Pipelines;
 using System.Linq;
 using System.Text;
@@ -18,7 +17,6 @@ namespace LibCK3.Tests
         private const string SAVE_PATH = "assets/save.ck3";
         private const string META_PATH = "assets/meta_header.ck3";
         private const string META_JSON_PATH = "assets/meta_header.json";
-        private const string GAMESTATE_ZIP_PATH = "assets/gamestate.zip";
         private const int CHECKSUM_LENGTH = 24;
 
         private static Utf8JsonWriter GetTestWriter(out Func<byte[]> flushFunc)
@@ -136,24 +134,19 @@ namespace LibCK3.Tests
             Assert.Equal("{\"levels\":[1,2,{\"3\":4},5]}", str);
         }
 
-        [Fact]
-        public async Task UnzipGamestate()
+        private Stream OpenSaveAndAdvanceToZip()
         {
-            using var zipArchive = ZipFile.OpenRead(GAMESTATE_ZIP_PATH);
-            var zipEntry = zipArchive.GetEntry("gamestate");
-            await using var gamestateStream = zipEntry.Open();
-            await using var ms = new MemoryStream();
-
-            await gamestateStream.CopyToAsync(ms);
-
-            Assert.Equal(zipEntry.Length, ms.Length);
-            Assert.Equal(zipEntry.Crc32, Crc32.ComputeChecksum(ms.ToArray()));
+            var fs = File.OpenRead(SAVE_PATH);
+            using var br = new BinaryReader(fs, Encoding.UTF8, true);
+            while (br.ReadUInt32() != CompressedGamestateReader.PKZIP_MAGIC_UINT) ;
+            fs.Seek(-sizeof(uint), SeekOrigin.Current);
+            return fs;
         }
 
         [Fact]
-        public async Task UnzipGamestateBlind()
+        public async Task UnzipSave()
         {
-            using var gamestateZipStream = File.OpenRead(GAMESTATE_ZIP_PATH);
+            using var gamestateZipStream = OpenSaveAndAdvanceToZip();
             using var binStream = new MemoryStream();
             var reader = PipeReader.Create(gamestateZipStream);
             var writer = PipeWriter.Create(binStream, new StreamPipeWriterOptions(leaveOpen: true));

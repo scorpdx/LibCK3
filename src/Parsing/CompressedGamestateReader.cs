@@ -4,17 +4,19 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.IO.Pipelines;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
+[assembly: InternalsVisibleTo("LibCK3.Tests")]
 namespace LibCK3.Parsing
 {
     public class CompressedGamestateReader
     {
         internal const string GAMESTATE_ENTRY = "gamestate";
-        private const uint PKZIP_MAGIC_UINT = 0x04034b50;
+        internal const uint PKZIP_MAGIC_UINT = 0x04034b50;
 
         internal static readonly byte[] GAMESTATE = Encoding.UTF8.GetBytes(GAMESTATE_ENTRY);
 
