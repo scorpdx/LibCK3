@@ -1,4 +1,4 @@
-name: dotnet package
+name: CI build-test-pack
 on: [push]
 jobs:
   build:
