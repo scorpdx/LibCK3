@@ -18,7 +18,7 @@ namespace LibCK3.Tests
         private const string SAVE_PATH = "assets/save.ck3";
         private const string META_PATH = "assets/meta_header.ck3";
         private const string META_JSON_PATH = "assets/meta_header.json";
-        private const string GAMESTATE_ZIP_PATH = "assets/gamestate.zip";
+        private const string GAMESTATE_ZIP_PATH = SAVE_PATH;
         private const int CHECKSUM_LENGTH = 24;
 
         private static Utf8JsonWriter GetTestWriter(out Func<byte[]> flushFunc)
