@@ -402,11 +402,6 @@ namespace LibCK3.Parsing
                         }
                         else
                         {
-                            if (CK3Date.TryParse(intValue, out _))
-                            {
-                                Trace.WriteLine($"date: true");
-                            }
-
                             if (ShouldWriteIdentifier(ref reader))
                             {
                                 Span<byte> utf8Int = stackalloc byte[11]; //-2147483648
