@@ -181,7 +181,6 @@ namespace LibCK3.Parsing
                                 goto InlineValue;
                             }
 
-                            Trace.WriteLine(token.AsIdentifier());
                             _overlayStack.Push(_overlayStack.Pop() | token.GetOverlay());
 
                             _writer.WritePropertyName(token.AsIdentifier());
@@ -403,11 +402,6 @@ namespace LibCK3.Parsing
                         }
                         else
                         {
-                            if (CK3Date.TryParse(intValue, out _))
-                            {
-                                Trace.WriteLine($"date: true");
-                            }
-
                             if (ShouldWriteIdentifier(ref reader))
                             {
                                 Span<byte> utf8Int = stackalloc byte[11]; //-2147483648
