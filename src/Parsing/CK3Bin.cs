@@ -2,6 +2,7 @@
 using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipelines;
 using System.Text.Json;
@@ -41,6 +42,8 @@ namespace LibCK3.Parsing
         private readonly bool _parseGamestate;
 
         private ParseState _state;
+        private Stack<ContainerType> _containerStack;
+        private Stack<ValueOverlayFlags> _overlayStack;
 
         private CK3Bin(PipeReader readPipe, Utf8JsonWriter writer, ParseState state)
         {
@@ -89,7 +92,9 @@ namespace LibCK3.Parsing
         {
             _writer.WriteStartObject();
 
-            var containerStack = new Stack<ContainerType>();
+            _containerStack = new Stack<ContainerType>();
+            _overlayStack = new Stack<ValueOverlayFlags>();
+            _overlayStack.Push(default);
 
             try
             {
@@ -101,7 +106,7 @@ namespace LibCK3.Parsing
                         break;
                     }
 
-                    ParseSequence(result.Buffer, containerStack, out var consumed, out var examined);
+                    ParseSequence(result.Buffer, out var consumed, out var examined);
                     pipeReader.AdvanceTo(consumed, examined);
 
                     if (_state == ParseState.DecompressGamestate)
@@ -135,7 +140,7 @@ namespace LibCK3.Parsing
             _writer.WriteEndObject();
         }
 
-        private void ParseSequence(ReadOnlySequence<byte> buffer, Stack<ContainerType> containerStack, out SequencePosition consumed, out SequencePosition examined)
+        private void ParseSequence(ReadOnlySequence<byte> buffer, out SequencePosition consumed, out SequencePosition examined)
         {
             var reader = new SequenceReader<byte>(buffer);
             consumed = buffer.Start;
@@ -170,11 +175,13 @@ namespace LibCK3.Parsing
                         }
                         else if (!token.IsSpecial)
                         {
-                            if (containerStack.TryPeek(out var container) && container == ContainerType.Array)
+                            if (_containerStack.TryPeek(out var container) && container == ContainerType.Array)
                             {
                                 _state = ParseState.Value;
                                 goto InlineValue;
                             }
+
+                            _overlayStack.Push(_overlayStack.Pop() | token.GetOverlay());
 
                             _writer.WritePropertyName(token.AsIdentifier());
                             break;
@@ -183,7 +190,7 @@ namespace LibCK3.Parsing
                         switch (token.AsSpecial())
                         {
                             case SpecialTokens.Equals:
-                                if (containerStack.TryPeek(out var container) && container == ContainerType.HiddenObject)
+                                if (_containerStack.TryPeek(out var container) && container == ContainerType.HiddenObject)
                                 {
                                     //eq inside array -- hidden object!
                                     //create a new object to wrap it
@@ -200,13 +207,13 @@ namespace LibCK3.Parsing
                             case SpecialTokens.LPStr:
                             case SpecialTokens.Int:
                             case SpecialTokens.UInt:
-                                if (containerStack.Peek() == ContainerType.Object)
+                                if (_containerStack.Peek() == ContainerType.Object)
                                 {
                                     _state = ParseState.IdentifierKey;
                                 }
                                 goto InlineValue;
                             //
-                            case SpecialTokens.Close when containerStack.Count == 1:
+                            case SpecialTokens.Close when _containerStack.Count == 1:
                                 _state = ParseState.ContainerToRoot;
                                 goto InlineValue;
                             case SpecialTokens.Open:
@@ -239,7 +246,7 @@ namespace LibCK3.Parsing
                         if (_state == ParseState.HiddenValue)
                         {
                             //clean up
-                            containerStack.Pop();
+                            _containerStack.Pop();
                             _writer.WriteEndObject();
                         }
 
@@ -256,11 +263,11 @@ namespace LibCK3.Parsing
                         {
                             case ContainerType.Object:
                                 _writer.WriteStartObject();
-                                containerStack.Push(ContainerType.Object);
+                                _containerStack.Push(ContainerType.Object);
                                 break;
                             case ContainerType.Array:
                                 _writer.WriteStartArray();
-                                containerStack.Push(ContainerType.Array);
+                                _containerStack.Push(ContainerType.Array);
                                 break;
                         }
 
@@ -308,12 +315,12 @@ namespace LibCK3.Parsing
             {
                 bool HiddenObjectAhead(ref SequenceReader<byte> reader)
                 {
-                    if (containerStack.TryPeek(out var inObject) && inObject == ContainerType.Array && reader.IsNext(EQUAL_BYTES))
+                    if (_containerStack.TryPeek(out var inObject) && inObject == ContainerType.Array && reader.IsNext(EQUAL_BYTES))
                     {
                         //open object before writing property name
                         //no need to set parseState, the eq will
                         _writer.WriteStartObject();
-                        containerStack.Push(ContainerType.HiddenObject);
+                        _containerStack.Push(ContainerType.HiddenObject);
                         return true;
                     }
 
@@ -331,10 +338,18 @@ namespace LibCK3.Parsing
                 switch (token.AsSpecial())
                 {
                     case SpecialTokens.Open:
+                        if(_overlayStack.Peek().HasFlag(ValueOverlayFlags.KeepForChildren))
+                        {
+                            _overlayStack.Push(_overlayStack.Peek() & ~ValueOverlayFlags.KeepForChildren);
+                        } else
+                        {
+                            _overlayStack.Push(ValueOverlayFlags.None);
+                        }
+
                         _state = ParseState.Container;
                         return true;
                     case SpecialTokens.Close:
-                        switch (containerStack.Pop())
+                        switch (_containerStack.Pop())
                         {
                             case ContainerType.Object:
                                 _writer.WriteEndObject();
@@ -344,6 +359,8 @@ namespace LibCK3.Parsing
                                 break;
                             default: throw new InvalidOperationException("Unexpected container type in stack during close");
                         }
+
+                        _overlayStack.Pop();
 
                         if (_state == ParseState.ContainerToRoot && reader.IsNext(PKZIP_MAGIC, false))
                         {
@@ -355,8 +372,11 @@ namespace LibCK3.Parsing
                         if (!reader.TryReadLittleEndian(out int intValue))
                             return false;
 
-                        if (CK3Date.TryParse(intValue, out var date))
+                        if (_overlayStack.Peek().HasFlag(ValueOverlayFlags.AsDate))
                         {
+                            if (!CK3Date.TryParse(intValue, out var date))
+                                throw new InvalidOperationException($"Failed to parse date but had {nameof(ValueOverlayFlags.AsDate)} overlay");
+
                             Span<byte> utf8Date = stackalloc byte[11]; //99999.99.99
                             if (!date.ToUtf8String(ref utf8Date, out int bytesWritten))
                                 //This should never happen
@@ -372,6 +392,13 @@ namespace LibCK3.Parsing
                             {
                                 _writer.WriteStringValue(utf8Date);
                             }
+
+                            var overlay = _overlayStack.Pop();
+                            if(!overlay.HasFlag(ValueOverlayFlags.Repeats)) 
+                            {
+                                overlay &= ~ValueOverlayFlags.AsDate;
+                            }
+                            _overlayStack.Push(overlay);
                         }
                         else
                         {
@@ -430,7 +457,24 @@ namespace LibCK3.Parsing
                         if (!reader.TryReadLittleEndian(out long ck3DoubleValue))
                             return false;
 
-                        var doubleValue = ck3DoubleValue / 1000.0D;
+                        double doubleValue;
+                        if (_overlayStack.Peek().HasFlag(ValueOverlayFlags.AsQ))
+                        {
+                            var scaledDouble = Math.ScaleB(ck3DoubleValue, -15);
+                            doubleValue = Math.Round(scaledDouble, digits: 5);
+
+                            var overlay = _overlayStack.Pop();
+                            if (!overlay.HasFlag(ValueOverlayFlags.Repeats))
+                            {
+                                overlay &= ~ValueOverlayFlags.AsQ;
+                            }
+                            _overlayStack.Push(overlay);
+                        }
+                        else
+                        {
+                            doubleValue = ck3DoubleValue / 1000D;
+                        }
+
                         _writer.WriteNumberValue(doubleValue);
                         return true;
                     case SpecialTokens.LPQStr:

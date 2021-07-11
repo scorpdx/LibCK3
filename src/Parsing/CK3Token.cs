@@ -1,6 +1,5 @@
 using LibCK3.Tokens;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace LibCK3.Parsing
@@ -39,5 +38,8 @@ namespace LibCK3.Parsing
         public SpecialTokens AsSpecial() => (SpecialTokens)ID;
 
         public JsonEncodedText AsIdentifier() => CK3Tokens.Tokens[ID];
+
+        public ValueOverlayFlags GetOverlay()
+            => ValueOverlays.Overlays.TryGetValue(ID, out var overlayFlags) ? overlayFlags : ValueOverlayFlags.None;
     }
 }
