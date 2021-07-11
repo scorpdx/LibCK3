@@ -6,7 +6,7 @@
     <Description>.NET 5.0 library for parsing Crusader Kings 3 game data and save games</Description>
     <PackageProjectUrl>https://github.com/scorpdx/LibCK3</PackageProjectUrl>
     <RepositoryUrl>https://github.com/scorpdx/LibCK3</RepositoryUrl>
-    <VersionPrefix>1.4.0</VersionPrefix>
+    <VersionPrefix>1.4.2</VersionPrefix>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
@@ -19,7 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="LibCK3.Tokens" Version="1.4.0" />
+    <PackageReference Include="LibCK3.Tokens" Version="1.4.2" />
     <PackageReference Include="System.IO.Pipelines" Version="5.0.1" />
   </ItemGroup>
 
