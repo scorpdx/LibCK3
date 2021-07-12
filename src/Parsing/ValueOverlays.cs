@@ -45,7 +45,7 @@ namespace LibCK3.Parsing
             { "gold", ValueOverlayFlags.AsQ },
             //{ "", ValueOverlayFlags.AsQ },
         }
-        .Join(CK3Tokens.Tokens, okvp => okvp.Key, ikvp => ikvp.Value.ToString(), (ok, ik) => (ik.Key, ok.Value))
-        .ToDictionary(tup => tup.Key, tup => tup.Value);
+        .Join(CK3Tokens.TokenNames, okvp => okvp.Key, ikvp => ikvp.Key, (ok, ik) => (ik.Value, ok.Value))
+        .ToDictionary(tup => tup.Item1, tup => tup.Item2);
     }
 }
