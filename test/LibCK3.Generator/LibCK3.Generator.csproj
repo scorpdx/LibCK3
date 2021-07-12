@@ -6,7 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="LibCK3.Tokens" Version="1.4.4" />
+    <PackageReference Include="LibCK3.Tokens" Version="1.4.4.2" />
   </ItemGroup>
 
   <ItemGroup>
