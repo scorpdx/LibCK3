@@ -16,4 +16,4 @@ jobs:
     - name: Publish the package to GPR
       run: dotnet nuget push pkg/*.nupkg -k ${{ secrets.GITHUB_TOKEN }} -s https://nuget.pkg.github.com/scorpdx/index.json --skip-duplicate
     - name: Publish the package to NuGet
-      run: dotnet nuget push pkg/*.nupkg -k ${{ secrets.LIBCK3_NUGET_TOKEN }} -s https://api.nuget.org/v3/index.json
+      run: dotnet nuget push pkg/*.nupkg -k ${{ secrets.LIBCK3_NUGET_TOKEN }} -s https://api.nuget.org/v3/index.json --skip-duplicate
