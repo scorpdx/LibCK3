@@ -44,6 +44,8 @@ namespace LibCK3.Parsing
             //{ "", ValueOverlayFlags.AsDate },
             { "gold", ValueOverlayFlags.AsQ },
             //{ "", ValueOverlayFlags.AsQ },
+            { "triggered_event", ValueOverlayFlags.Flatten },
+            //{ "", ValueOverlayFlags.Flatten },
         }
         .Join(CK3Tokens.TokenNames, okvp => okvp.Key, ikvp => ikvp.Key, (ok, ik) => (ik.Value, ok.Value))
         .ToDictionary(tup => tup.Item1, tup => tup.Item2);
