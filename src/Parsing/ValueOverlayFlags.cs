@@ -21,6 +21,10 @@ namespace LibCK3
         /// <summary>
         /// Only remove this flag when the container token it occurred on is popped
         /// </summary>
-        KeepForChildren = 1 << 3
+        KeepForChildren = 1 << 3,
+        /// <summary>
+        /// Flatten duplicate keys into an array
+        /// </summary>
+        Flatten = 1 << 4
     }
 }
