@@ -22,12 +22,7 @@ namespace LibCK3.Tests
         private static Utf8JsonWriter GetTestWriter(out Func<byte[]> flushFunc)
         {
             var ms = new MemoryStream();
-#if DEBUG
-            var options = new JsonWriterOptions() { Indented = true };
-#else
-            var options = new JsonWriterOptions();
-#endif
-            var writer = new Utf8JsonWriter(ms, options);
+            var writer = new Utf8JsonWriter(ms/*, new JsonWriterOptions() { Indented = true }*/);
             flushFunc = () =>
             {
                 using (ms)
