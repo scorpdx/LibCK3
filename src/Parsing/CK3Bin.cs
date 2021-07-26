@@ -185,9 +185,30 @@ namespace LibCK3.Parsing
                                 goto InlineValue;
                             }
 
-                            _overlayStack.Push(_overlayStack.Pop() | token.GetOverlay());
+                            var currentOverlay = _overlayStack.Pop();
+                            var mask = token.GetOverlay();
 
-                            _writer.WritePropertyName(token.AsIdentifier());
+                            //Last flattened token
+                            if (currentOverlay.HasFlag(ValueOverlayFlags.Flatten) && !mask.HasFlag(ValueOverlayFlags.Flatten))
+                            {
+                                currentOverlay &= ~ValueOverlayFlags.Flatten;
+                                _writer.WriteEndArray();
+                                _writer.WritePropertyName(token.AsIdentifier());
+                            }
+                            //We don't write property names for flattened tokens except the first
+                            else if (!currentOverlay.HasFlag(ValueOverlayFlags.Flatten))
+                            {
+                                _writer.WritePropertyName(token.AsIdentifier());
+                            }
+
+                            //First flattened token
+                            if (mask.HasFlag(ValueOverlayFlags.Flatten) && !currentOverlay.HasFlag(ValueOverlayFlags.Flatten))
+                            {
+                                _writer.WriteStartArray();
+                            }
+
+                            _overlayStack.Push(currentOverlay | mask);
+
                             break;
                         }
 
@@ -253,7 +274,7 @@ namespace LibCK3.Parsing
                             _containerStack.Pop();
                             _writer.WriteEndObject();
                         }
-
+                        
                         _state = initState == _state ? ParseState.Token : _state;
                         break;
                     case ParseState.Container:
