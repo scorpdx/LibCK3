@@ -36,7 +36,7 @@ namespace LibCK3.Tests
             return writer;
         }
         private static Task<byte[]> ParseFragment(BinFragment fragment) => CK3Bin.ParseFragmentAsync(fragment.Build().ToArray());
-
+        private static async Task<string> ParseFragmentString(BinFragment fragment) => Encoding.UTF8.GetString(await ParseFragment(fragment));
 
         [Fact]
         public async Task ParseFullSave()
@@ -113,6 +113,19 @@ namespace LibCK3.Tests
             var str = Encoding.UTF8.GetString(results);
 
             Assert.Equal("{\"save_game_version\":3}", str);
+        }
+
+        [Fact]
+        public async Task ParseDuplicateKeys_Empty()
+        {
+            var frag = new BinFragment()
+                .Open()
+                  .Identifier("triggered_event").Eq().Open().Close()
+                  .Identifier("triggered_event").Eq().Open().Close()
+                .Close();
+
+            var str = await ParseFragmentString(frag);
+            Assert.Equal("{\"triggered_event\":[{},{}]}", str);
         }
 
         [Fact]
