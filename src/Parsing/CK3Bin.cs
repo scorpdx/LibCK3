@@ -14,8 +14,12 @@ namespace LibCK3.Parsing
     public class CK3Bin
     {
         private const int CHECKSUM_LENGTH = 23; //"SAV" + checksum[20], followed by '\n' delimiter
+
         private static readonly byte[] PKZIP_MAGIC = new[] { (byte)0x50, (byte)0x4b, (byte)0x03, (byte)0x04 };
+        private static ReadOnlySpan<byte> PkZipMagic => PKZIP_MAGIC;
+
         private static readonly byte[] EQUAL_BYTES = BitConverter.GetBytes((ushort)SpecialTokens.Equals);
+        private static ReadOnlySpan<byte> EqualBytes => EQUAL_BYTES;
 
         private enum ParseState
         {
@@ -235,7 +239,7 @@ namespace LibCK3.Parsing
                             examined = buffer.End;
                             return;
                         }
-                    InlineValue:
+                        InlineValue:
                         var initState = _state;
                         if (!TryReadValue(ref reader, token))
                         {
@@ -315,7 +319,7 @@ namespace LibCK3.Parsing
             {
                 bool HiddenObjectAhead(ref SequenceReader<byte> reader)
                 {
-                    if (_containerStack.TryPeek(out var inObject) && inObject == ContainerType.Array && reader.IsNext(EQUAL_BYTES))
+                    if (_containerStack.TryPeek(out var inObject) && inObject == ContainerType.Array && reader.IsNext(EqualBytes))
                     {
                         //open object before writing property name
                         //no need to set parseState, the eq will
@@ -338,10 +342,11 @@ namespace LibCK3.Parsing
                 switch (token.AsSpecial())
                 {
                     case SpecialTokens.Open:
-                        if(_overlayStack.Peek().HasFlag(ValueOverlayFlags.KeepForChildren))
+                        if (_overlayStack.Peek().HasFlag(ValueOverlayFlags.KeepForChildren))
                         {
                             _overlayStack.Push(_overlayStack.Peek() & ~ValueOverlayFlags.KeepForChildren);
-                        } else
+                        }
+                        else
                         {
                             _overlayStack.Push(ValueOverlayFlags.None);
                         }
@@ -362,7 +367,7 @@ namespace LibCK3.Parsing
 
                         _overlayStack.Pop();
 
-                        if (_state == ParseState.ContainerToRoot && reader.IsNext(PKZIP_MAGIC, false))
+                        if (_state == ParseState.ContainerToRoot && reader.IsNext(PkZipMagic, false))
                         {
                             _state = ParseState.DecompressGamestate;
                         }
@@ -394,7 +399,7 @@ namespace LibCK3.Parsing
                             }
 
                             var overlay = _overlayStack.Pop();
-                            if(!overlay.HasFlag(ValueOverlayFlags.Repeats)) 
+                            if (!overlay.HasFlag(ValueOverlayFlags.Repeats))
                             {
                                 overlay &= ~ValueOverlayFlags.AsDate;
                             }
@@ -482,8 +487,10 @@ namespace LibCK3.Parsing
                         //No hidden value peeking supported, must come after value read
                         return TryReadLPQStr(ref reader, _state == ParseState.IdentifierKey);
                     case SpecialTokens.RGB:
-                        if (!reader.TryReadToken(out var openToken) || openToken.AsSpecial() != SpecialTokens.Open)
+                        if (!reader.TryReadToken(out var openToken))
                             return false;
+
+                        Debug.Assert(openToken.AsSpecial() == SpecialTokens.Open);
 
                         //every color segment uint prefixed by unused ushort
                         //0-2   ushort:{
@@ -502,8 +509,10 @@ namespace LibCK3.Parsing
                         if (!reader.TryReadLittleEndian(out ushort _) || !reader.TryReadLittleEndian(out uint B))
                             return false;
 
-                        if (!reader.TryReadToken(out var closeToken) || closeToken.AsSpecial() != SpecialTokens.Close)
+                        if (!reader.TryReadToken(out var closeToken))
                             return false;
+
+                        Debug.Assert(closeToken.AsSpecial() == SpecialTokens.Close);
 
                         //_writer.WriteCommentValue("RGB");
                         _writer.WriteStartArray();
