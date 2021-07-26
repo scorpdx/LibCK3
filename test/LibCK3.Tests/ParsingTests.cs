@@ -119,13 +119,12 @@ namespace LibCK3.Tests
         public async Task ParseDuplicateKeys_Empty()
         {
             var frag = new BinFragment()
-                .Open()
                   .Identifier("triggered_event").Eq().Open().Close()
                   .Identifier("triggered_event").Eq().Open().Close()
-                .Close();
+                  .Identifier("next_player_event_id").Eq().Int(3);
 
             var str = await ParseFragmentString(frag);
-            Assert.Equal("{\"triggered_event\":[{},{}]}", str);
+            Assert.Equal("{\"triggered_event\":[{},{}],\"next_player_event_id\":3}", str);
         }
 
         [Fact]
