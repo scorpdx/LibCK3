@@ -25,6 +25,10 @@ namespace LibCK3
         /// <summary>
         /// Flatten duplicate keys into an array
         /// </summary>
-        Flatten = 1 << 4
+        Flatten = 1 << 4,
+        /// <summary>
+        /// Check for hidden objects
+        /// </summary>
+        HiddenObjectContainer = 1 << 5
     }
 }
