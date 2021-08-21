@@ -257,7 +257,7 @@ namespace LibCK3.Parsing
                 return false;
             }
 
-            bool ShouldWriteIdentifier(ref SequenceReader<byte> reader) => _state == ParseState.IdentifierKey || HiddenObjectAhead(ref reader);
+            bool ShouldWriteIdentifier(ref SequenceReader<byte> reader) => _state == ParseState.IdentifierKey || (_overlayStack.Peek().HasFlag(ValueOverlayFlags.HiddenObjectContainer) && HiddenObjectAhead(ref reader));
 
             if (!token.IsSpecial)
             {
