@@ -1,12 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net5.0</TargetFramework>
+    <TargetFrameworks>net5.0;net6.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="LibCK3.Tokens" Version="1.4.4.2" />
+    <PackageReference Include="LibCK3.Tokens" Version="1.4.4.3-LocalTesting-1" />
   </ItemGroup>
 
   <ItemGroup>
