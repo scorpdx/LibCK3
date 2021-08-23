@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 [assembly: InternalsVisibleTo("LibCK3.Tests")]
 namespace LibCK3.Parsing
 {
-    public class CompressedGamestateReader
+    public sealed class CompressedGamestateReader
     {
         internal const string GAMESTATE_ENTRY = "gamestate";
         internal const uint PKZIP_MAGIC_UINT = 0x04034b50;
