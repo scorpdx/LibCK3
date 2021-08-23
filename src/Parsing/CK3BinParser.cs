@@ -7,7 +7,7 @@ using System.Text.Json;
 
 namespace LibCK3.Parsing
 {
-    internal class CK3BinParser
+    internal sealed class CK3BinParser
     {
         private const int CHECKSUM_LENGTH = 23; //"SAV" + checksum[20], followed by '\n' delimiter
 
@@ -22,8 +22,8 @@ namespace LibCK3.Parsing
             Checksum,
             Token,
             IdentifierKey,
-            HiddenValue,
             Value,
+            HiddenValue,
             Container,
             ContainerToRoot,
             DecompressGamestate
@@ -52,6 +52,51 @@ namespace LibCK3.Parsing
             _overlayStack.Push(default);
         }
 
+        private void HandleTokenOverlay(CK3Token token)
+        {
+            var currentOverlay = _overlayStack.Pop();
+            var mask = token.GetOverlay();
+
+            //Last flattened token
+            if (currentOverlay.HasFlag(ValueOverlayFlags.Flatten) && !mask.HasFlag(ValueOverlayFlags.Flatten))
+            {
+                currentOverlay &= ~ValueOverlayFlags.Flatten;
+                _writer.WriteEndArray();
+                _writer.WritePropertyName(token.AsIdentifier());
+            }
+            //We don't write property names for flattened tokens except the first
+            else if (!currentOverlay.HasFlag(ValueOverlayFlags.Flatten))
+            {
+                _writer.WritePropertyName(token.AsIdentifier());
+            }
+
+            //First flattened token
+            if (mask.HasFlag(ValueOverlayFlags.Flatten) && !currentOverlay.HasFlag(ValueOverlayFlags.Flatten))
+            {
+                _writer.WriteStartArray();
+            }
+
+            _overlayStack.Push(currentOverlay | mask);
+        }
+
+        private bool HandleInlineValue(ref SequenceReader<byte> reader, CK3Token token)
+        {
+            var initState = _state;
+            if (!TryReadValue(ref reader, token))
+            {
+                return false;
+            }
+
+            if(_state == ParseState.HiddenValue)
+            {
+                _containerStack.Pop();
+                _writer.WriteEndObject();
+            }
+
+            _state = initState == _state ? ParseState.Token : _state;
+            return true;
+        }
+
         public void ParseSequence(ReadOnlySequence<byte> buffer, out SequencePosition consumed, out SequencePosition examined)
         {
             var reader = new SequenceReader<byte>(buffer);
@@ -72,8 +117,7 @@ namespace LibCK3.Parsing
                                 return;
                             }
 
-                            examined = buffer.End;
-                            return;
+                            goto FailToParse;
                         }
 
                         _writer.WriteString("checksum", checksum);
@@ -82,8 +126,7 @@ namespace LibCK3.Parsing
                     case ParseState.Token:
                         if (!reader.TryReadToken(out token))
                         {
-                            examined = buffer.End;
-                            return;
+                            goto FailToParse;
                         }
                         else if (!token.IsSpecial)
                         {
@@ -93,47 +136,17 @@ namespace LibCK3.Parsing
                                 goto InlineValue;
                             }
 
-                            var currentOverlay = _overlayStack.Pop();
-                            var mask = token.GetOverlay();
-
-                            //Last flattened token
-                            if (currentOverlay.HasFlag(ValueOverlayFlags.Flatten) && !mask.HasFlag(ValueOverlayFlags.Flatten))
-                            {
-                                currentOverlay &= ~ValueOverlayFlags.Flatten;
-                                _writer.WriteEndArray();
-                                _writer.WritePropertyName(token.AsIdentifier());
-                            }
-                            //We don't write property names for flattened tokens except the first
-                            else if (!currentOverlay.HasFlag(ValueOverlayFlags.Flatten))
-                            {
-                                _writer.WritePropertyName(token.AsIdentifier());
-                            }
-
-                            //First flattened token
-                            if (mask.HasFlag(ValueOverlayFlags.Flatten) && !currentOverlay.HasFlag(ValueOverlayFlags.Flatten))
-                            {
-                                _writer.WriteStartArray();
-                            }
-
-                            _overlayStack.Push(currentOverlay | mask);
-
+                            HandleTokenOverlay(token);
                             break;
                         }
 
                         switch (token.AsSpecial())
                         {
+                            case SpecialTokens.Equals when _containerStack.TryPeek(out var container) && container == ContainerType.HiddenObject:
+                                _state = ParseState.HiddenValue;
+                                break;
                             case SpecialTokens.Equals:
-                                if (_containerStack.TryPeek(out var container) && container == ContainerType.HiddenObject)
-                                {
-                                    //eq inside array -- hidden object!
-                                    //create a new object to wrap it
-                                    //(TryReadValue already peeks and writes the property name)
-                                    _state = ParseState.HiddenValue;
-                                }
-                                else
-                                {
-                                    _state = ParseState.Value;
-                                }
+                                _state = ParseState.Value;
                                 break;
                             //These values can all be used as identifiers
                             case SpecialTokens.LPQStr:
@@ -165,31 +178,18 @@ namespace LibCK3.Parsing
                     case ParseState.Value:
                         if (!reader.TryReadToken(out token))
                         {
-                            examined = buffer.End;
-                            return;
+                            goto FailToParse;
                         }
-                        InlineValue:
-                        var initState = _state;
-                        if (!TryReadValue(ref reader, token))
+                    InlineValue:
+                        if (!HandleInlineValue(ref reader, token))
                         {
-                            examined = buffer.End;
-                            return;
+                            goto FailToParse;
                         }
-
-                        if (_state == ParseState.HiddenValue)
-                        {
-                            //clean up
-                            _containerStack.Pop();
-                            _writer.WriteEndObject();
-                        }
-
-                        _state = initState == _state ? ParseState.Token : _state;
                         break;
                     case ParseState.Container:
                         if (!TryPeekContainerType(reader, out var containerType) || containerType == null)
                         {
-                            examined = buffer.End;
-                            return;
+                            goto FailToParse;
                         }
 
                         switch (containerType.Value)
@@ -204,7 +204,6 @@ namespace LibCK3.Parsing
                                 break;
                         }
 
-                        //Debug.Indent();
                         _state = ParseState.Token;
                         break;
                     case ParseState.DecompressGamestate:
@@ -214,6 +213,10 @@ namespace LibCK3.Parsing
                 consumed = reader.Position;
                 examined = consumed;
             }
+            return;
+        FailToParse:
+            examined = buffer.End;
+            return;
         }
 
         static bool TryReadChecksum(ref SequenceReader<byte> reader, out ReadOnlySpan<byte> line)
@@ -241,24 +244,24 @@ namespace LibCK3.Parsing
             return true;
         }
 
-        bool TryReadValue(ref SequenceReader<byte> reader, CK3Token token)
+        bool HiddenObjectAhead(ref SequenceReader<byte> reader)
         {
-            bool HiddenObjectAhead(ref SequenceReader<byte> reader)
+            if (_containerStack.TryPeek(out var inObject) && inObject == ContainerType.Array && reader.IsNext(EqualBytes))
             {
-                if (_containerStack.TryPeek(out var inObject) && inObject == ContainerType.Array && reader.IsNext(EqualBytes))
-                {
-                    //open object before writing property name
-                    //no need to set parseState, the eq will
-                    _writer.WriteStartObject();
-                    _containerStack.Push(ContainerType.HiddenObject);
-                    return true;
-                }
-
-                return false;
+                //open object before writing property name
+                _containerStack.Push(ContainerType.HiddenObject);
+                _writer.WriteStartObject();
+                return true;
             }
 
-            bool ShouldWriteIdentifier(ref SequenceReader<byte> reader) => _state == ParseState.IdentifierKey || (_overlayStack.Peek().HasFlag(ValueOverlayFlags.HiddenObjectContainer) && HiddenObjectAhead(ref reader));
+            return false;
+        }
 
+        bool ShouldWriteIdentifier(ref SequenceReader<byte> reader)
+            => _state == ParseState.IdentifierKey || (_overlayStack.Peek().HasFlag(ValueOverlayFlags.HiddenObjectContainer) && HiddenObjectAhead(ref reader));
+
+        bool TryReadValue(ref SequenceReader<byte> reader, CK3Token token)
+        {
             if (!token.IsSpecial)
             {
                 _writer.WriteStringValue(token.AsIdentifier());
