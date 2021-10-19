@@ -65,18 +65,18 @@ namespace LibCK3.Parsing
         private static (int month, int day) MonthDayFromJulian(int daysSinceJan1)
             => daysSinceJan1 switch
             {
-                int x when x >= 0 && x <= 30 => (1, daysSinceJan1 + 1),
-                int x when x >= 31 && x <= 58 => (2, daysSinceJan1 - 30),
-                int x when x >= 59 && x <= 89 => (3, daysSinceJan1 - 58),
-                int x when x >= 90 && x <= 119 => (4, daysSinceJan1 - 89),
-                int x when x >= 120 && x <= 150 => (5, daysSinceJan1 - 119),
-                int x when x >= 151 && x <= 180 => (6, daysSinceJan1 - 150),
-                int x when x >= 181 && x <= 211 => (7, daysSinceJan1 - 180),
-                int x when x >= 212 && x <= 242 => (8, daysSinceJan1 - 211),
-                int x when x >= 243 && x <= 272 => (9, daysSinceJan1 - 242),
-                int x when x >= 273 && x <= 303 => (10, daysSinceJan1 - 272),
-                int x when x >= 304 && x <= 333 => (11, daysSinceJan1 - 303),
-                int x when x >= 334 && x <= 364 => (12, daysSinceJan1 - 333),
+                (>= 0 and <= 30) => (1, daysSinceJan1 + 1),
+                (>= 31 and <= 58) => (2, daysSinceJan1 - 30),
+                (>= 59 and <= 89) => (3, daysSinceJan1 - 58),
+                (>= 90 and <= 119) => (4, daysSinceJan1 - 89),
+                (>= 120 and <= 150) => (5, daysSinceJan1 - 119),
+                (>= 151 and <= 180) => (6, daysSinceJan1 - 150),
+                (>= 181 and <= 211) => (7, daysSinceJan1 - 180),
+                (>= 212 and <= 242) => (8, daysSinceJan1 - 211),
+                (>= 243 and <= 272) => (9, daysSinceJan1 - 242),
+                (>= 273 and <= 303) => (10, daysSinceJan1 - 272),
+                (>= 304 and <= 333) => (11, daysSinceJan1 - 303),
+                (>= 334 and <= 364) => (12, daysSinceJan1 - 333),
                 _ => throw new ArgumentOutOfRangeException(nameof(daysSinceJan1))
             };
     }
