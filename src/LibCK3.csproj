@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<TargetFrameworks>net5.0;net6.0</TargetFrameworks>
+		<TargetFrameworks>net6.0</TargetFrameworks>
 		<Authors>jzebedee</Authors>
 		<Company>scorpdx</Company>
 		<Description>.NET 5.0 library for parsing Crusader Kings 3 game data and save games</Description>
@@ -14,6 +14,8 @@
 		<EmbedUntrackedSources>true</EmbedUntrackedSources>
 		<IncludeSymbols>true</IncludeSymbols>
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
+		
+		<LangVersion>latest</LangVersion>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
@@ -22,7 +24,8 @@
 
 	<ItemGroup>
 		<PackageReference Include="LibCK3.Tokens" Version="1.4.4.3-LocalTesting-1" />
-		<PackageReference Include="System.IO.Pipelines" Version="6.0.0-rc.2.21420.29" />
+		<PackageReference Include="System.IO.Pipelines" Version="6.0.0-rtm.21514.7" />
+		<PackageReference Include="System.Text.Json" Version="6.0.0-rtm.21514.7" />
 	</ItemGroup>
 
 	<ItemGroup>
